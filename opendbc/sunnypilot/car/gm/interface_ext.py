@@ -31,9 +31,17 @@ class CarInterfaceExt:
     # actuator delay. SunnyPilot already uses the Silverado torque tune as the
     # baseline for its 11th-gen non-ACC Suburban, so use that same conservative
     # baseline until vehicle-specific lateral data is collected.
+    #
+    # The initial card process receives a mutable CarParams builder, while
+    # controlsd reconstructs CarParams as a read-only capnp reader. The tuning
+    # is already serialized into CarParams by the initial card process, so the
+    # later read-only reconstruction must not attempt to mutate it.
     if CP.carFingerprint == CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN:
-      CP.steerActuatorDelay = 0.2
-      CI_Base.configure_torque_tune(CAR.CHEVROLET_SILVERADO, CP.lateralTuning)
+      try:
+        CP.steerActuatorDelay = 0.2
+        CI_Base.configure_torque_tune(CAR.CHEVROLET_SILVERADO, CP.lateralTuning)
+      except AttributeError:
+        pass
 
   def torque_from_lateral_accel_siglin(self, latcontrol_inputs: LatControlInputs, torque_params: structs.CarParams.LateralTorqueTuning,
                                        gravity_adjusted: bool) -> float:
