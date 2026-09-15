@@ -15,6 +15,23 @@ from opendbc.sunnypilot.car.interfaces import setup_interfaces as sunnypilot_int
 
 FRAME_FINGERPRINT = 100  # 1s
 
+GM_CAMERA_BUS = 2
+GM_SUBURBAN_CAMERA_PLATFORM = "CHEVROLET_SUBURBAN_CAMERA_11TH_GEN"
+GM_SUBURBAN_CAMERA_VIN_PREFIX = "1GNSKJKJ"
+GM_SUBURBAN_CAMERA_PT_SIGNATURE = {
+  190: 6,
+  201: 8,
+  209: 7,
+  211: 2,
+  241: 6,
+  304: 1,
+  320: 3,
+}
+GM_CAMERA_DIAGNOSTIC_MESSAGES = {
+  0x24b: 8,
+  0x64b: 8,
+}
+
 
 def load_interfaces(brand_names):
   ret = {}
@@ -39,6 +56,24 @@ def _get_interface_names() -> dict[str, list[str]]:
 # imports from directory opendbc/car/<name>/
 interface_names = _get_interface_names()
 interfaces = load_interfaces(interface_names)
+
+
+def _normalize_gm_suburban_camera_candidate(candidate: str | None, fingerprints: dict[int, dict], vin: str | None) -> str | None:
+  """Resolve the ACC camera-harness Suburban when its CAN fingerprint is shared with Yukon."""
+  if candidate not in (None, "GMC_YUKON"):
+    return candidate
+
+  if not isinstance(vin, str) or not vin.startswith(GM_SUBURBAN_CAMERA_VIN_PREFIX):
+    return candidate
+
+  powertrain = fingerprints.get(0, {})
+  camera = fingerprints.get(GM_CAMERA_BUS, {})
+  if not all(powertrain.get(address) == length for address, length in GM_SUBURBAN_CAMERA_PT_SIGNATURE.items()):
+    return candidate
+  if not all(camera.get(address) == length for address, length in GM_CAMERA_DIAGNOSTIC_MESSAGES.items()):
+    return candidate
+
+  return GM_SUBURBAN_CAMERA_PLATFORM
 
 
 def can_fingerprint(can_recv: CanRecvCallable) -> tuple[str | None, dict[int, dict]]:
@@ -156,6 +191,12 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
             fixed_fingerprint: str | None = None, init_params_list_sp: list[dict[str, str]] | None = None, is_release_sp: bool = False):
   candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(can_recv, can_send, set_obd_multiplexing, cached_params,
                                                                           fixed_fingerprint)
+
+  # The camera-harness Suburban and Yukon intentionally share a legacy CAN
+  # fingerprint. Honor an explicit user-selected fingerprint, otherwise use VIN
+  # and camera diagnostics to resolve the Suburban before falling back to MOCK.
+  if source != CarParams.FingerprintSource.fixed:
+    candidate = _normalize_gm_suburban_camera_candidate(candidate, fingerprints, vin)
 
   if candidate is None:
     carlog.error({"event": "car doesn't match any fingerprints", "fingerprints": repr(fingerprints)})
