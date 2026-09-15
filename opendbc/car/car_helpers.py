@@ -15,7 +15,6 @@ from opendbc.sunnypilot.car.interfaces import setup_interfaces as sunnypilot_int
 
 FRAME_FINGERPRINT = 100  # 1s
 
-GM_CAMERA_BUS = 2
 GM_SUBURBAN_CAMERA_PLATFORM = "CHEVROLET_SUBURBAN_CAMERA_11TH_GEN"
 GM_SUBURBAN_CAMERA_VIN_PREFIX = "1GNSKJKJ"
 GM_SUBURBAN_CAMERA_PT_SIGNATURE = {
@@ -26,10 +25,6 @@ GM_SUBURBAN_CAMERA_PT_SIGNATURE = {
   241: 6,
   304: 1,
   320: 3,
-}
-GM_CAMERA_DIAGNOSTIC_MESSAGES = {
-  0x24b: 8,
-  0x64b: 8,
 }
 
 
@@ -59,7 +54,13 @@ interfaces = load_interfaces(interface_names)
 
 
 def _normalize_gm_suburban_camera_candidate(candidate: str | None, fingerprints: dict[int, dict], vin: str | None) -> str | None:
-  """Resolve the ACC camera-harness Suburban when its CAN fingerprint is shared with Yukon."""
+  """Resolve the ACC camera-harness Suburban when its CAN fingerprint is shared with Yukon.
+
+  Camera diagnostic IDs are intentionally not required here: they are not guaranteed to be
+  present during the short passive CAN-fingerprinting window. The Chevrolet Suburban VIN plus
+  the known Yukon/Suburban powertrain signature is sufficient to disambiguate this dedicated
+  camera-harness platform from the GMC Yukon without weakening any safety configuration.
+  """
   if candidate not in (None, "GMC_YUKON"):
     return candidate
 
@@ -67,10 +68,7 @@ def _normalize_gm_suburban_camera_candidate(candidate: str | None, fingerprints:
     return candidate
 
   powertrain = fingerprints.get(0, {})
-  camera = fingerprints.get(GM_CAMERA_BUS, {})
   if not all(powertrain.get(address) == length for address, length in GM_SUBURBAN_CAMERA_PT_SIGNATURE.items()):
-    return candidate
-  if not all(camera.get(address) == length for address, length in GM_CAMERA_DIAGNOSTIC_MESSAGES.items()):
     return candidate
 
   return GM_SUBURBAN_CAMERA_PLATFORM
@@ -194,7 +192,7 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
 
   # The camera-harness Suburban and Yukon intentionally share a legacy CAN
   # fingerprint. Honor an explicit user-selected fingerprint, otherwise use VIN
-  # and camera diagnostics to resolve the Suburban before falling back to MOCK.
+  # and the stable PT signature to resolve the Suburban before falling back to MOCK.
   if source != CarParams.FingerprintSource.fixed:
     candidate = _normalize_gm_suburban_camera_candidate(candidate, fingerprints, vin)
 
