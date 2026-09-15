@@ -55,7 +55,9 @@ class CAR(Platforms):
   )
   MAZDA_CX9 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2016-20")],
-    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=3.1, steerRatio=17.6)
+    # Match ZoomPilot's corrected TC-body geometry. Steering capability remains
+    # stock SunnyPilot until the swapped CX-5 EPS firmware is confirmed from a route.
+    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6)
   )
   MAZDA_3 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda 3 2017-18")],
