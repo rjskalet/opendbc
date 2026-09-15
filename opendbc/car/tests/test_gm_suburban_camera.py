@@ -15,10 +15,6 @@ MATCHING_FINGERPRINT = {
     304: 1,
     320: 3,
   },
-  2: {
-    0x24b: 8,
-    0x64b: 8,
-  },
 }
 
 
@@ -32,14 +28,16 @@ def test_suburban_camera_from_ambiguous_candidate():
          "CHEVROLET_SUBURBAN_CAMERA_11TH_GEN"
 
 
+def test_suburban_camera_does_not_require_transient_camera_diagnostics():
+  # Camera diagnostic request/response IDs are not guaranteed to appear in the short
+  # passive fingerprint window. VIN + the stable PT signature must still resolve it.
+  fingerprint = {0: MATCHING_FINGERPRINT[0].copy(), 2: {}}
+  assert _normalize_gm_suburban_camera_candidate("GMC_YUKON", fingerprint, SUBURBAN_VIN) == \
+         "CHEVROLET_SUBURBAN_CAMERA_11TH_GEN"
+
+
 def test_yukon_vin_stays_yukon():
   assert _normalize_gm_suburban_camera_candidate("GMC_YUKON", MATCHING_FINGERPRINT, YUKON_VIN) == "GMC_YUKON"
-
-
-def test_missing_camera_diagnostics_does_not_match():
-  fingerprint = {bus: messages.copy() for bus, messages in MATCHING_FINGERPRINT.items()}
-  del fingerprint[2][0x64b]
-  assert _normalize_gm_suburban_camera_candidate("GMC_YUKON", fingerprint, SUBURBAN_VIN) == "GMC_YUKON"
 
 
 def test_wrong_powertrain_signature_does_not_match():
