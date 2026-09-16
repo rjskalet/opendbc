@@ -2,7 +2,7 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mazda.values import DBC, LKAS_LIMITS
+from opendbc.car.mazda.values import DBC, LKAS_LIMITS, CarControllerParams, MazdaFlags
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -18,9 +18,38 @@ class CarState(CarStateBase):
     self.acc_active_last = False
     self.lkas_allowed_speed = False
 
+    self.params = CarControllerParams(CP)
+    self.lkas_blocked = False
+    self.lkas_effective = 0
+    self.lkas_track_state = False
+    self.steer_undelivered_frames = 0
+    self.steer_undelivered = False
+    self.lkas_block_origin_speed: float | None = None
+    self.lkas_delivered = False
+    self.steer_first_engage_hold = False
+
     self.distance_button = 0
     self.accel_button = 0
     self.decel_button = 0
+
+  def update_steer_undelivered(self, v_ego_raw: float, lkas_request: float) -> None:
+    self.lkas_delivered |= self.lkas_effective != 0
+    self.steer_first_engage_hold = (not self.lkas_delivered and self.lkas_blocked and self.lkas_track_state and
+                                    v_ego_raw < self.params.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED)
+
+    if not self.lkas_blocked:
+      self.steer_undelivered_frames = 0
+      self.steer_undelivered = False
+      self.lkas_block_origin_speed = None
+    elif self.lkas_block_origin_speed is None:
+      self.lkas_block_origin_speed = v_ego_raw
+
+    if self.lkas_blocked and not self.steer_undelivered:
+      if self.lkas_effective == 0 and abs(lkas_request) > self.params.STEER_UNDELIVERED_MIN:
+        self.steer_undelivered_frames += 1
+        self.steer_undelivered = self.steer_undelivered_frames >= self.params.STEER_UNDELIVERED_FRAMES
+      else:
+        self.steer_undelivered_frames = 0
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -65,28 +94,29 @@ class CarState(CarStateBase):
     # TODO: this should be from 0 - 1.
     ret.gasPressed = cp.vl["ENGINE_DATA"]["PEDAL_GAS"] > 0
 
-    # Either due to low speed or hands off
+    # Either due to low speed or hands off on legacy firmware.
     lkas_blocked = cp.vl["STEER_RATE"]["LKAS_BLOCK"] == 1
+    self.lkas_blocked = lkas_blocked
+    self.lkas_effective = cp.vl["STEER_RATE"]["LKAS_EFFECTIVE"]
+    self.lkas_track_state = cp.vl["STEER_RATE"]["LKAS_TRACK_STATE"] == 1
 
-    if self.CP.minSteerSpeed > 0:
-      # LKAS is enabled at 52kph going up and disabled at 45kph going down
-      # wait for LKAS_BLOCK signal to clear when going up since it lags behind the speed sometimes
+    if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
+      self.update_steer_undelivered(ret.vEgoRaw, cp.vl["STEER_RATE"]["LKAS_REQUEST"])
+      self.lkas_allowed_speed = True
+    else:
+      # LKAS is enabled at 52kph going up and disabled at 45kph going down.
       if speed_kph > LKAS_LIMITS.ENABLE_SPEED and not lkas_blocked:
         self.lkas_allowed_speed = True
       elif speed_kph < LKAS_LIMITS.DISABLE_SPEED:
         self.lkas_allowed_speed = False
-    else:
-      self.lkas_allowed_speed = True
 
     # TODO: the signal used for available seems to be the adaptive cruise signal, instead of the main on
-    #       it should be used for carState.cruiseState.nonAdaptive instead
     ret.cruiseState.available = cp.vl["CRZ_CTRL"]["CRZ_AVAILABLE"] == 1
     ret.cruiseState.enabled = cp.vl["CRZ_CTRL"]["CRZ_ACTIVE"] == 1
     ret.cruiseState.standstill = cp.vl["PEDALS"]["STANDSTILL"] == 1
     ret.cruiseState.speed = cp.vl["CRZ_EVENTS"]["CRZ_SPEED"] * CV.KPH_TO_MS
 
     # stock lkas should be on
-    # TODO: is this needed?
     ret.invalidLkasSetting = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0
 
     if ret.cruiseState.enabled:
@@ -96,10 +126,12 @@ class CarState(CarStateBase):
         self.low_speed_alert = False
     ret.lowSpeedAlert = self.low_speed_alert
 
-    # Check if LKAS is disabled due to lack of driver torque when all other states indicate
-    # it should be enabled (steer lockout). Don't warn until we actually get lkas active
-    # and lose it again, i.e, after initial lkas activation
-    ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
+    if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
+      # LKAS_BLOCK is not itself a fault on this EPS; controller-side zero-delivery protection
+      # handles sustained non-delivery without turning a normal low-speed block into a disable.
+      ret.steerFaultTemporary = False
+    else:
+      ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
 
     self.acc_active_last = ret.cruiseState.enabled
 
