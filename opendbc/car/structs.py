@@ -114,8 +114,6 @@ class IntelligentCruiseButtonManagement:
     none = auto()
     increase = auto()
     decrease = auto()
-    increaseHold = auto()
-    decreaseHold = auto()
 
 
 @auto_dataclass
