@@ -15,6 +15,10 @@
 #define MAZDA_MAIN 0
 #define MAZDA_CAM  2
 
+// Firmware-derived safety parameter matching ZoomPilot's steer-to-zero EPS envelope.
+#define MAZDA_PARAM_STEER_TO_ZERO_EPS 2U
+static bool mazda_steer_to_zero_eps = false;
+
 // track msgs coming from OP so that we know what CAM msgs to drop and what to forward
 static void mazda_rx_hook(const CANPacket_t *msg) {
   if ((int)msg->bus == MAZDA_MAIN) {
@@ -58,14 +62,27 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
     .type = TorqueDriverLimited,
   };
 
+  // Measured 2022 CX-5 EPS envelope used by ZoomPilot for steer-to-zero firmware.
+  const TorqueSteeringLimits MAZDA_STEER_TO_ZERO_EPS_STEERING_LIMITS = {
+    .max_torque = 1200,
+    .max_rate_up = 12,
+    .max_rate_down = 12,
+    .max_rt_delta = 384,
+    .driver_torque_multiplier = 15,
+    .driver_torque_allowance = 15,
+    .type = TorqueDriverLimited,
+  };
+
   bool tx = true;
   // Check if msg is sent on the main BUS
   if (msg->bus == (unsigned char)MAZDA_MAIN) {
     // steer cmd checks
     if (msg->addr == MAZDA_LKAS) {
       int desired_torque = (((msg->data[0] & 0x0FU) << 8) | msg->data[1]) - 2048U;
+      const TorqueSteeringLimits limits = mazda_steer_to_zero_eps ?
+        MAZDA_STEER_TO_ZERO_EPS_STEERING_LIMITS : MAZDA_STEERING_LIMITS;
 
-      if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS)) {
+      if (steer_torque_cmd_checks(desired_torque, -1, limits)) {
         tx = false;
       }
     }
@@ -95,7 +112,7 @@ static safety_config mazda_init(uint16_t param) {
     {.msg = {{MAZDA_PEDALS,       0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
-  SAFETY_UNUSED(param);
+  mazda_steer_to_zero_eps = GET_FLAG(param, MAZDA_PARAM_STEER_TO_ZERO_EPS);
   return BUILD_SAFETY_CFG(mazda_rx_checks, MAZDA_TX_MSGS);
 }
 
