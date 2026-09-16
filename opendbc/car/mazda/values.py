@@ -14,15 +14,37 @@ Ecu = CarParams.Ecu
 
 class CarControllerParams:
   STEER_MAX = 800                # theoretical max_steer 2047
-  STEER_DELTA_UP = 10             # torque increase per refresh
-  STEER_DELTA_DOWN = 25           # torque decrease per refresh
-  STEER_DRIVER_ALLOWANCE = 15     # allowed driver torque before start limiting
-  STEER_DRIVER_MULTIPLIER = 1     # weight driver torque
-  STEER_DRIVER_FACTOR = 1         # from dbc
-  STEER_STEP = 1  # 100 Hz
+  STEER_DELTA_UP = 10            # torque increase per refresh
+  STEER_DELTA_DOWN = 25          # torque decrease per refresh
+  STEER_DRIVER_ALLOWANCE = 15    # allowed driver torque before start limiting
+  STEER_DRIVER_MULTIPLIER = 1    # weight driver torque
+  STEER_DRIVER_FACTOR = 1        # from dbc
+  STEER_STEP = 1                 # 100 Hz
 
   def __init__(self, CP):
-    pass
+    if CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
+      # ZoomPilot's measured 2022 CX-5 EPS envelope. Keep controller and panda synchronized.
+      self.STEER_MAX = 1200
+      self.STEER_DELTA_UP = 12
+      self.STEER_DELTA_DOWN = 12
+      self.STEER_DRIVER_MULTIPLIER = 15
+      self.STEER_DRIVER_SAMPLES = 10
+      self.STEER_DRIVER_MARGIN = 2
+      self.STEER_MAX_LOOKUP = ([0., 14.2, 14.5], [1200, 1200, 800])
+      self.EPS_CEILING_LOOKUP = ([8.0, 8.5, 9.4, 10.3, 11.2, 12.1, 13.0, 13.9, 14.5],
+                                 [1148, 1132, 1092, 1048, 1012, 920, 808, 676, 620])
+      self.STEER_UNDELIVERED_MIN = 200
+      self.STEER_UNDELIVERED_FRAMES = 20
+      self.STEER_UNDELIVERED_ALERT_FRAMES = 80
+      self.STEER_UNDELIVERED_ALERT_MIN_SPEED = 12. * CV.MPH_TO_MS
+      self.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED = 1.0
+    else:
+      self.STEER_MAX = 800
+      self.STEER_DELTA_UP = 10
+      self.STEER_DELTA_DOWN = 25
+      self.STEER_DRIVER_MULTIPLIER = 1
+      self.STEER_DRIVER_SAMPLES = 1
+      self.STEER_DRIVER_MARGIN = 0
 
 
 @dataclass
@@ -37,9 +59,15 @@ class MazdaCarSpecs(CarSpecs):
 
 
 class MazdaFlags(IntFlag):
-  # Static flags
-  # Gen 1 hardware: same CAN messages and same camera
+  # Gen 1 hardware: same CAN messages and same camera.
   GEN1 = 1
+  # EPS firmware that can steer to zero speed (2022 CX-5 donor rack family).
+  STEER_TO_ZERO_EPS = 2
+
+
+class MazdaSafetyFlags(IntFlag):
+  # Selects the matching steer-to-zero torque envelope in panda safety.
+  STEER_TO_ZERO_EPS = 2
 
 
 @dataclass
@@ -55,6 +83,7 @@ class CAR(Platforms):
   )
   MAZDA_CX9 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2016-20")],
+    # Keep stock SunnyPilot geometry for this first EPS-only validation package.
     MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=3.1, steerRatio=17.6)
   )
   MAZDA_3 = MazdaPlatformConfig(
@@ -81,6 +110,14 @@ class LKAS_LIMITS:
   ENABLE_SPEED = 52     # kph
 
 
+# Keep this synchronized with ZoomPilot's steer-to-zero EPS firmware set.
+STEER_TO_ZERO_EPS_FW = {
+  b'K0A1-3210X-A-00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+  b'KBST-3210X-A-00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+  b'KSD5-3210X-C-00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+}
+
+
 class Buttons:
   NONE = 0
   SET_PLUS = 1
@@ -92,7 +129,6 @@ class Buttons:
 FW_QUERY_CONFIG = FwQueryConfig(
   fw_version_regex=br"[A-Z0-9-]{11,16}\x00{8,13}",
   requests=[
-    # TODO: check data to ensure ABS does not skip ISO-TP frames on bus 0
     Request(
       [StdQueries.MANUFACTURER_SOFTWARE_VERSION_REQUEST],
       [StdQueries.MANUFACTURER_SOFTWARE_VERSION_RESPONSE],
