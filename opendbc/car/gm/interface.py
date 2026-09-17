@@ -226,6 +226,14 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
+    elif candidate == CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN:
+      # Suburban lateral-v2: this camera-harness platform can remain lat-active below
+      # the generic GM 10 kph threshold. Keep the stock GM safety torque ceiling.
+      ret.minSteerSpeed = 0.0
+      ret.steerAtStandstill = True
+      ret.steerActuatorDelay = 0.30
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+
     elif candidate == CAR.GMC_YUKON:
       ret.steerActuatorDelay = 0.5
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
