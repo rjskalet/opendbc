@@ -1,11 +1,11 @@
 # Per-platform speed-binned torque parameters learned from comma 4 data. Breakpoints are
-# bin centers in m/s. LAF and friction seed per-bin SVD fits and their +/-30% sanity bounds.
+# bin centers in m/s. Lateral-acceleration factor and friction seed per-bin SVD fits and their +/-30% sanity bounds.
 # Learned bins persist across boots. Increment seed_version when new seeds must invalidate
 # existing caches and restart learning; an omitted version is zero.
 
 [MAZDA_CX5_2022]
 # The 14.2 m/s boundary aligns bins with the STEER_MAX change from 1200 to 800.
-# Consumers interpolate normalized LAF in count space across that discontinuity.
+# Consumers interpolate normalized lateral-acceleration factor in count space across that discontinuity.
 # Values were refreshed from per-bin LiveTorqueParameters fits on 2026-09-02. Unlearned
 # 28 m/s and 35 m/s bins retain the 2026-08-19 fits. Version 1 invalidates older caches.
 speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
@@ -17,14 +17,15 @@ seed_version = 1
 # Learned on a CX-9 with a CX-5 2022 donor EPS. The stock EPS keeps the 45 kph steering
 # floor, so it receives only the bins above it, which sit on the same 800-count scale.
 # Measurements were refreshed from this car's LiveTorqueParameters cache on 2026-08-25.
-# The unlearned 35 m/s LAF is extrapolated from the measured CX-9/CX-5 highway offset;
+# The unlearned 35 m/s lateral-acceleration factor is extrapolated from the measured CX-9/CX-5 highway offset;
 # friction retains the CX-5 value.
 speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
 laf_bp      = [2.67, 2.70, 2.56, 1.53, 1.28, 1.72, 1.97]
 friction_bp = [0.161, 0.154, 0.116, 0.163, 0.136, 0.128, 0.108]
 
-# 2016-20 CX-9, including this 2018 test car. Same measured CX-9/CX-5 donor-EPS table.
 [MAZDA_CX9]
+# Same TC chassis and donor-EPS tune as MAZDA_CX9_2021. The 2016-20 fingerprint needs this
+# explicit alias so an EPS-swapped 2018 CX-9 loads the same measured speed-bin values.
 substitute = "MAZDA_CX9_2021"
 
 [MAZDA_CX8_2023]
