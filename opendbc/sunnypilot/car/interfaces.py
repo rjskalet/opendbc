@@ -4,6 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import functools
 import json
 import os
 import numpy as np
@@ -33,11 +34,102 @@ class LatControlInputs(NamedTuple):
 TorqueFromLateralAccelCallbackTypeTorqueSpace = Callable[[LatControlInputs, structs.CarParams.LateralTorqueTuning, bool], float]
 
 
+@functools.cache
+def get_speed_dep_config():
+  """Load ZoomPilot's speed-dependent torque seed config."""
+  import tomllib
+  from pathlib import Path
+  from opendbc.car.common.basedir import BASEDIR
+  path = Path(BASEDIR) / 'torque_data/speed_dependent.toml'
+  with open(path, 'rb') as f:
+    cfg = tomllib.load(f)
+  for name, entry in cfg.items():
+    if 'substitute' in entry:
+      cfg[name] = {**cfg[entry['substitute']], **{k: v for k, v in entry.items() if k != 'substitute'}}
+  return cfg
+
+
+def get_steer_max_schedule(CP):
+  """Normalized torque-to-CAN-count scale by speed, or None for a flat scale."""
+  try:
+    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
+    ccp = values.CarControllerParams(CP)
+  except (ImportError, AttributeError, TypeError):
+    return None
+  lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
+  if lookup is None:
+    return None
+  return [float(x) for x in lookup[0]], [float(x) for x in lookup[1]]
+
+
+def get_steer_rail_schedule(CP):
+  """Measured EPS applied ceiling divided by the controller's speed-dependent scale."""
+  try:
+    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
+    ccp = values.CarControllerParams(CP)
+  except (ImportError, AttributeError, TypeError):
+    return None
+  ceiling = getattr(ccp, 'EPS_CEILING_LOOKUP', None)
+  if ceiling is None:
+    return None
+  sm_lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
+  if sm_lookup is not None:
+    sm_bp, sm_v = [float(x) for x in sm_lookup[0]], [float(x) for x in sm_lookup[1]]
+  else:
+    sm_bp, sm_v = [0.0], [float(ccp.STEER_MAX)]
+  ceil_bp, ceil_v = [float(x) for x in ceiling[0]], [float(x) for x in ceiling[1]]
+  bp = sorted(set(ceil_bp + sm_bp))
+  rail = [min(1.0, float(np.interp(v, ceil_bp, ceil_v)) / float(np.interp(v, sm_bp, sm_v))) for v in bp]
+  return bp, rail
+
+
+def get_steer_slew_schedule(CP):
+  """Per-frame normalized torque slew by speed for steer-limit classification."""
+  try:
+    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
+    ccp = values.CarControllerParams(CP)
+  except (ImportError, AttributeError, TypeError):
+    return None
+  delta_up = getattr(ccp, 'STEER_DELTA_UP', None)
+  delta_down = getattr(ccp, 'STEER_DELTA_DOWN', None)
+  if delta_up is None or delta_down is None:
+    return None
+  lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
+  if lookup is not None:
+    bp, sm_v = [float(x) for x in lookup[0]], [float(x) for x in lookup[1]]
+  else:
+    steer_max = getattr(ccp, 'STEER_MAX', None)
+    if steer_max is None:
+      return None
+    bp, sm_v = [0.0], [float(steer_max)]
+  return bp, [float(delta_up) / sm for sm in sm_v], [float(delta_down) / sm for sm in sm_v]
+
+
+def get_speed_dep_config_for_car(CP):
+  """Return this platform's speed-bin seeds, including its STEER_MAX schedule."""
+  cfg = get_speed_dep_config().get(CP.carFingerprint, {})
+  if cfg.get('requires_steer_to_zero') and CP.minSteerSpeed > 0:
+    return {}
+  cfg = dict(cfg)
+  if cfg and CP.minSteerSpeed > 0 and 'speed_bp' in cfg:
+    keep = [i for i, v in enumerate(cfg['speed_bp']) if v >= CP.minSteerSpeed]
+    for key in ('speed_bp', 'laf_bp', 'friction_bp'):
+      if key in cfg:
+        if keep:
+          cfg[key] = [cfg[key][i] for i in keep]
+        else:
+          del cfg[key]
+  if cfg:
+    schedule = get_steer_max_schedule(CP)
+    if schedule is not None:
+      cfg['steer_max_schedule'] = schedule
+  return cfg
+
+
 class CarInterfaceBaseSP:
   @staticmethod
   def torque_from_lateral_accel_linear_in_torque_space(latcontrol_inputs: LatControlInputs, torque_params: structs.CarParams.LateralTorqueTuning,
                                                         gravity_adjusted: bool) -> float:
-    # The default is a linear relationship between torque and lateral acceleration (accounting for road roll and steering friction)
     return latcontrol_inputs.lateral_acceleration / float(torque_params.latAccelFactor)
 
   def torque_from_lateral_accel_in_torque_space(self) -> TorqueFromLateralAccelCallbackTypeTorqueSpace:
@@ -94,8 +186,6 @@ def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
 
 def _initialize_custom_longitudinal_tuning(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
                                            params_dict: dict[str, str]) -> None:
-
-  # Hyundai Custom Longitudinal Tuning
   if CP.brand == 'hyundai':
     hyundai_longitudinal_tuning = int(params_dict.get("HyundaiLongitudinalTuning", 0))
     if hyundai_longitudinal_tuning == LongitudinalTuningType.DYNAMIC:
