@@ -5,6 +5,7 @@ from opendbc.car import Bus, structs
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.values import CAR, CarControllerParams
 from opendbc.sunnypilot.car.gm.carstate_ext import CarStateExt
+from opendbc.sunnypilot.car.gm.interface_ext import CarInterfaceExt
 
 
 class TestSuburbanLateralV32(unittest.TestCase):
@@ -21,6 +22,21 @@ class TestSuburbanLateralV32(unittest.TestCase):
 
     # V3.2 must not raise the GM/panda steering torque ceiling.
     self.assertEqual(CarControllerParams.STEER_MAX, 300)
+
+  def test_sunnypilot_extension_preserves_v32_params(self):
+    cp = CarInterface.get_non_essential_params(CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN)
+
+    class NoLegacyTune:
+      @staticmethod
+      def configure_torque_tune(*args, **kwargs):
+        raise AssertionError("legacy Silverado tune must not be applied to Suburban v3.2")
+
+    CarInterfaceExt(cp, NoLegacyTune)
+
+    self.assertAlmostEqual(cp.steerActuatorDelay, 0.20)
+    self.assertAlmostEqual(cp.lateralTuning.torque.latAccelFactor, 0.68)
+    self.assertAlmostEqual(cp.lateralTuning.torque.latAccelOffset, 0.0)
+    self.assertAlmostEqual(cp.lateralTuning.torque.friction, 0.205)
 
   def test_suburban_zero_speed_noise_does_not_raise_low_speed_alert(self):
     cp = SimpleNamespace(carFingerprint=CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN, minSteerSpeed=0.0)
