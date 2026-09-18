@@ -7,16 +7,19 @@ from opendbc.car.gm.values import CAR, CarControllerParams
 from opendbc.sunnypilot.car.gm.carstate_ext import CarStateExt
 
 
-class TestSuburbanLateralV2(unittest.TestCase):
-  def test_suburban_low_speed_lateral_params(self):
+class TestSuburbanLateralV3(unittest.TestCase):
+  def test_suburban_v3_lateral_params(self):
     cp = CarInterface.get_non_essential_params(CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN)
 
     self.assertEqual(cp.minSteerSpeed, 0.0)
     self.assertTrue(cp.steerAtStandstill)
     self.assertAlmostEqual(cp.steerActuatorDelay, 0.30)
     self.assertEqual(cp.lateralTuning.which(), "torque")
+    self.assertAlmostEqual(cp.lateralTuning.torque.latAccelFactor, 0.68)
+    self.assertAlmostEqual(cp.lateralTuning.torque.latAccelOffset, -0.26)
+    self.assertAlmostEqual(cp.lateralTuning.torque.friction, 0.205)
 
-    # V2 must not raise the GM/panda steering torque ceiling.
+    # V3 must not raise the GM/panda steering torque ceiling.
     self.assertEqual(CarControllerParams.STEER_MAX, 300)
 
   def test_suburban_zero_speed_noise_does_not_raise_low_speed_alert(self):
