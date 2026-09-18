@@ -226,6 +226,16 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
+    elif candidate == CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN:
+      # Clean camera-ACC baseline for measured Suburban calibration.
+      # Keep factory GM ACC and stock GM steering safety limits. The torque seed
+      # comes directly from the Suburban entry in torque_data/override.toml.
+      ret.minSteerSpeed = 0.0
+      ret.steerAtStandstill = True
+      ret.steerActuatorDelay = 0.2
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+      ret.lateralTuning.torque.latAccelOffset = 0.0
+
     elif candidate == CAR.GMC_YUKON:
       ret.steerActuatorDelay = 0.5
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
