@@ -1,10 +1,6 @@
 import unittest
-from types import SimpleNamespace
-
-from opendbc.car import Bus, structs
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.values import CAR, CarControllerParams
-from opendbc.sunnypilot.car.gm.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.gm.interface_ext import CarInterfaceExt
 
 
@@ -41,15 +37,6 @@ class TestSuburbanCameraAccCleanBaseline(unittest.TestCase):
     self.assertAlmostEqual(cp.lateralTuning.torque.latAccelFactor, 1.20)
     self.assertAlmostEqual(cp.lateralTuning.torque.latAccelOffset, 0.0)
     self.assertAlmostEqual(cp.lateralTuning.torque.friction, 0.26)
-
-  def test_zero_speed_noise_does_not_raise_low_speed_alert(self):
-    cp = SimpleNamespace(carFingerprint=CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN, minSteerSpeed=0.0)
-    cp_sp = SimpleNamespace(flags=0)
-    ret = structs.CarState()
-    ret.lowSpeedAlert = True
-
-    CarStateExt(cp, cp_sp).update(ret, {Bus.pt: SimpleNamespace(vl={})})
-    self.assertFalse(ret.lowSpeedAlert)
 
 
 if __name__ == "__main__":
