@@ -210,7 +210,7 @@ class CAR(Platforms):
   )
   CHEVROLET_SUBURBAN_CAMERA_11TH_GEN = GMPlatformConfig(
     [GMCarDocs("Chevrolet Suburban Camera Harness 2016-20", "Adaptive Cruise Control (ACC) & LKAS")],
-    CarSpecs(mass=2731, wheelbase=3.302, steerRatio=17.3, centerToFrontRatio=0.49),
+    CarSpecs(mass=2731, wheelbase=3.302, steerRatio=17.942207, centerToFrontRatio=0.49, tireStiffnessFactor=0.989379),
   )
 
   # port extensions
