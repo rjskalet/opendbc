@@ -234,7 +234,7 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       ret.steerAtStandstill = True
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
-      ret.lateralTuning.torque.latAccelOffset = 0.0
+      ret.lateralTuning.torque.latAccelOffset = -0.343459
 
     elif candidate == CAR.GMC_YUKON:
       ret.steerActuatorDelay = 0.5
