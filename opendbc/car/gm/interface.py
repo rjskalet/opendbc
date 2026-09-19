@@ -230,8 +230,8 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       # Clean camera-ACC baseline for measured Suburban calibration.
       # Keep factory GM ACC and stock GM steering safety limits. The torque seed
       # comes directly from the Suburban entry in torque_data/override.toml.
-      ret.minSteerSpeed = 0.0
-      ret.steerAtStandstill = True
+      # Keep sunnypilot's stock GM camera minimum steering speed (~10 km/h / 6.2 mph).
+      # Do not allow steering at standstill.
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
       ret.lateralTuning.torque.latAccelOffset = 0.0
