@@ -4,6 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import functools
 import json
 import os
 import numpy as np
@@ -31,6 +32,26 @@ class LatControlInputs(NamedTuple):
 
 
 TorqueFromLateralAccelCallbackTypeTorqueSpace = Callable[[LatControlInputs, structs.CarParams.LateralTorqueTuning, bool], float]
+
+
+@functools.cache
+def get_speed_dep_config():
+  """Load per-platform speed-dependent torque-learning seeds."""
+  import tomllib
+  from pathlib import Path
+  from opendbc.car.common.basedir import BASEDIR
+
+  with open(Path(BASEDIR) / "torque_data/speed_dependent.toml", "rb") as f:
+    cfg = tomllib.load(f)
+  for name, entry in cfg.items():
+    if "substitute" in entry:
+      cfg[name] = {**cfg[entry["substitute"]], **{k: v for k, v in entry.items() if k != "substitute"}}
+  return cfg
+
+
+def get_speed_dep_config_for_car(CP):
+  """Return speed-bin seeds for this exact platform."""
+  return dict(get_speed_dep_config().get(CP.carFingerprint, {}))
 
 
 class CarInterfaceBaseSP:
