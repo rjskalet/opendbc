@@ -2,6 +2,7 @@
 import unittest
 
 from opendbc.car.structs import CarParams
+from opendbc.car.mazda.values import MazdaSafetyFlags
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety, make_msg
@@ -79,6 +80,34 @@ class TestMazdaSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTes
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._button_msg(cancel=True)))
     self.assertTrue(self._tx(self._button_msg(resume=True)))
+
+
+class TestMazdaSteerToZeroSafety(common.DriverTorqueSteeringSafetyTest):
+  MAX_RATE_UP = 12
+  MAX_RATE_DOWN = 12
+  MAX_TORQUE_LOOKUP = [0], [1200]
+  MAX_RT_DELTA = 384
+  DRIVER_TORQUE_ALLOWANCE = 15
+  DRIVER_TORQUE_FACTOR = 15
+  NO_STEER_REQ_BIT = True
+
+  def setUp(self):
+    self.packer = CANPackerSafety("mazda_2017")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.mazda, MazdaSafetyFlags.STEER_TO_ZERO_EPS)
+    self.safety.init_tests()
+
+  def _torque_driver_msg(self, torque):
+    values = {"STEER_TORQUE_SENSOR": torque}
+    return self.packer.make_can_msg_safety("STEER_TORQUE", 0, values)
+
+  def _torque_cmd_msg(self, torque, steer_req=1):
+    values = {"LKAS_REQUEST": torque}
+    return self.packer.make_can_msg_safety("CAM_LKAS", 0, values)
+
+  def _speed_msg(self, speed):
+    values = {"SPEED": speed}
+    return self.packer.make_can_msg_safety("ENGINE_DATA", 0, values)
 
 
 class TestMazdaIgnition(unittest.TestCase):
