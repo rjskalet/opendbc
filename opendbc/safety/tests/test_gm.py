@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import unittest
+from types import SimpleNamespace
 
-from opendbc.car.gm.values import GMSafetyFlags
+from opendbc.car import structs
+from opendbc.car.car_helpers import interfaces
+from opendbc.car.gm.carcontroller import CarController
+from opendbc.car.gm.values import CAR, GMSafetyFlags
 from opendbc.car.structs import CarParams
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
@@ -201,6 +205,64 @@ class TestGmCameraSafety(TestGmCameraSafetyBase):
     for enabled in (True, False):
       self._rx(self._pcm_status_msg(enabled))
       self.assertEqual(enabled, self._tx(self._button_msg(Buttons.CANCEL)))
+
+
+class TestGmSuburbanPandaRejectionRecovery(unittest.TestCase):
+  def test_rejected_steer_restarts_ramp_from_panda_reference(self):
+    CP = interfaces[CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN].get_non_essential_params(CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN)
+    CP_SP = interfaces[CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN].get_non_essential_params_sp(
+      CP, CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN,
+    )
+    controller = CarController({}, CP, CP_SP)
+    safety = libsafety_py.libsafety
+    safety_packer = CANPackerSafety("gm_global_a_powertrain_generated")
+    safety.set_safety_hooks(CarParams.SafetyModel.gm, GMSafetyFlags.HW_CAM)
+    safety.init_tests()
+    safety.set_controls_allowed(True)
+
+    CC = structs.CarControl(latActive=True)
+    CC.actuators.torque = 1.0
+    CS = SimpleNamespace(
+      out=SimpleNamespace(steeringTorque=0.0),
+      cam_lka_steering_cmd_counter=0,
+      pt_lka_steering_cmd_counter=0,
+      loopback_lka_steering_cmd_updated=False,
+      loopback_lka_steering_cmd_ts_nanos=0,
+      lkas_rejected=0,
+      buttons_counter=0,
+    )
+
+    def step(frame, now_nanos):
+      controller.frame = frame
+      actuators, sends = controller.update(CC.as_reader(), structs.CarControlSP(), CS, now_nanos)
+      steer = next(msg for msg in sends if msg[0] == 0x180)
+      packet = libsafety_py.make_CANPacket(steer[0], steer[2], steer[1])
+      return actuators.torqueOutputCan, safety.safety_tx_hook(packet)
+
+    first_torque, first_accepted = step(3, 20_000_000)
+    self.assertEqual((first_torque, first_accepted), (10, True))
+
+    # Stage a stale driver-torque sample in the controller: Panda sees the opposing driver input
+    # immediately, rejects the next command, and resets its desired-torque reference to zero.
+    CS.loopback_lka_steering_cmd_updated = True
+    CS.loopback_lka_steering_cmd_ts_nanos = 20_000_000
+    driver_msg = safety_packer.make_can_msg_safety("PSCMStatus", 0, {"LKADriverAppldTrq": -2.0})
+    for _ in range(6):
+      safety.safety_rx_hook(driver_msg)
+    rejected_torque, rejected_accepted = step(6, 40_000_000)
+    self.assertEqual((rejected_torque, rejected_accepted), (20, False))
+    self.assertEqual(controller.apply_torque_last, 20)
+
+    clear_driver_msg = safety_packer.make_can_msg_safety("PSCMStatus", 0, {"LKADriverAppldTrq": 0.0})
+    for _ in range(6):
+      safety.safety_rx_hook(clear_driver_msg)
+
+    # Panda reports the refused frame on source 192, not the accepted-loopback source 128.
+    # The rejected-loopback parser exposes that per-cycle report to CarController.
+    CS.loopback_lka_steering_cmd_updated = False
+    CS.lkas_rejected = 1
+    next_torque, next_accepted = step(9, 60_000_000)
+    self.assertEqual((next_torque, next_accepted), (10, True))
 
 
 class TestGmCameraEVSafety(TestGmCameraSafety, TestGmEVSafetyBase):
