@@ -29,6 +29,7 @@ class CarState(CarStateBase, CarStateExt):
     self.lkas_block_origin_speed: float | None = None
     self.lkas_delivered = False
     self.steer_first_engage_hold = False
+    self.lkas_rejected = 0
 
     self.distance_button = 0
     self.accel_button = 0
@@ -101,6 +102,7 @@ class CarState(CarStateBase, CarStateExt):
     self.lkas_blocked = lkas_blocked
     self.lkas_effective = cp.vl["STEER_RATE"]["LKAS_EFFECTIVE"]
     self.lkas_track_state = cp.vl["STEER_RATE"]["LKAS_TRACK_STATE"] == 1
+    self.lkas_rejected = sum(1 for request in can_parsers[Bus.loopback].vl_all["CAM_LKAS"]["LKAS_REQUEST"] if request != 0)
 
     if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
       self.update_steer_undelivered(ret.vEgoRaw, cp.vl["STEER_RATE"]["LKAS_REQUEST"])
@@ -168,4 +170,7 @@ class CarState(CarStateBase, CarStateExt):
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
       # Traffic-sign camera traffic is optional; never make it part of canValid.
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_TRAFFIC_SIGNS", float("nan"))], 2),
+      # Panda reports rejected bus-0 transmissions back on bus 192. This traffic is sporadic,
+      # so it must never participate in parser validity or timeout checks.
+      Bus.loopback: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_LKAS", float("nan"))], 192),
     }

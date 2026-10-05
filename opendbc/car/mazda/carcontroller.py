@@ -37,6 +37,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
 
     self.driver_torque_samples.append(CS.out.steeringTorque)
 
+    if CS.lkas_rejected:
+      self.apply_torque_last = 0
+
     if CC.latActive:
       new_torque = int(round(CC.actuators.torque * steer_max))
 
