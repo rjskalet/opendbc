@@ -4,12 +4,28 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.mazda.carcontroller import CarController
 from opendbc.car.mazda.carstate import CarState
-from opendbc.car.mazda.values import CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, MazdaFlags, MazdaSafetyFlags
+from opendbc.car.mazda.values import CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, TORQUE_TUNES, CarControllerParams, MazdaFlags, MazdaSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
+
+  @staticmethod
+  def configure_torque_tune(candidate, tune, steering_angle_deadzone_deg=0.0):
+    # Populate the upstream 800-count Mazda tune first. The EPS-specific scale is applied
+    # separately once CarParams has identified the physical EPS firmware.
+    CarInterfaceBase.configure_torque_tune(candidate, tune, steering_angle_deadzone_deg)
+    lat_accel_factor, friction = TORQUE_TUNES.get(candidate, (tune.torque.latAccelFactor, tune.torque.friction))
+    tune.torque.latAccelFactor = lat_accel_factor
+    tune.torque.friction = friction
+
+  @staticmethod
+  def apply_torque_tune_scale(tune, scale: float):
+    if scale == 1.0:
+      return
+    tune.torque.latAccelFactor *= scale
+    tune.torque.friction /= scale
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
@@ -32,7 +48,8 @@ class CarInterface(CarInterfaceBase):
     ret.steerActuatorDelay = 0.14 if steer_to_zero else 0.1
     ret.steerLimitTimer = 0.8
 
-    CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+    CarInterface.configure_torque_tune(candidate, ret.lateralTuning)
+    CarInterface.apply_torque_tune_scale(ret.lateralTuning, CarControllerParams(ret).TUNE_SCALE)
 
     if not steer_to_zero and candidate not in (CAR.MAZDA_CX5_2022,):
       ret.minSteerSpeed = LKAS_LIMITS.DISABLE_SPEED * CV.KPH_TO_MS

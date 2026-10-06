@@ -30,15 +30,16 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
 
     apply_torque = 0
 
-    if self.steer_to_zero:
-      steer_max = round(float(np.interp(CS.out.vEgoRaw, self.params.STEER_MAX_LOOKUP[0], self.params.STEER_MAX_LOOKUP[1])))
-    else:
-      steer_max = self.params.STEER_MAX
-
     self.driver_torque_samples.append(CS.out.steeringTorque)
 
+    if getattr(CS, "lkas_rejected", 0):
+      # Panda reports a refused bus-0 CAM_LKAS transmission back on src 192 and resets its
+      # rate-limit reference. Restart our reference too so the next request is within one step
+      # of zero instead of starving the EPS with a run of rejected frames.
+      self.apply_torque_last = 0
+
     if CC.latActive:
-      new_torque = int(round(CC.actuators.torque * steer_max))
+      new_torque = int(round(CC.actuators.torque * self.params.STEER_MAX))
 
       if self.steer_to_zero:
         # Clamp requests to the measured EPS applied-torque rail so controlsd sees real saturation.
@@ -51,7 +52,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         driver_torque = max(self.driver_torque_samples) + self.params.STEER_DRIVER_MARGIN
 
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                      driver_torque, self.params, steer_max)
+                                                      driver_torque, self.params)
 
     # ZoomPilot-style protection for a steer-to-zero EPS that is reporting sustained zero delivery.
     if self.steer_to_zero and (CS.steer_undelivered or CS.steer_first_engage_hold):
@@ -84,7 +85,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CC_SP, CS, self.packer, self.frame, self.last_button_frame))
 
     new_actuators = CC.actuators.as_builder()
-    new_actuators.torque = apply_torque / steer_max
+    new_actuators.torque = apply_torque / self.params.STEER_MAX
     new_actuators.torqueOutputCan = apply_torque
 
     self.frame += 1

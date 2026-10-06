@@ -49,6 +49,20 @@ def get_speed_dep_config():
   return cfg
 
 
+def _controller_params(CP):
+  try:
+    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
+    return values.CarControllerParams(CP)
+  except (ImportError, AttributeError, TypeError):
+    return None
+
+
+def get_tune_scale(CP) -> float:
+  """Convert upstream torque-tune units onto this car's actual controller wire-count scale."""
+  ccp = _controller_params(CP)
+  return 1.0 if ccp is None else float(getattr(ccp, 'TUNE_SCALE', 1.0))
+
+
 def get_steer_max_schedule(CP):
   """Normalized torque-to-CAN-count scale by speed, or None for a flat scale."""
   try:
@@ -63,24 +77,12 @@ def get_steer_max_schedule(CP):
 
 
 def get_steer_rail_schedule(CP):
-  """Measured EPS applied ceiling divided by the controller's speed-dependent scale."""
-  try:
-    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
-    ccp = values.CarControllerParams(CP)
-  except (ImportError, AttributeError, TypeError):
-    return None
+  """Normalized physical EPS ceiling as a fraction of the controller's flat steer scale."""
+  ccp = _controller_params(CP)
   ceiling = getattr(ccp, 'EPS_CEILING_LOOKUP', None)
   if ceiling is None:
     return None
-  sm_lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
-  if sm_lookup is not None:
-    sm_bp, sm_v = [float(x) for x in sm_lookup[0]], [float(x) for x in sm_lookup[1]]
-  else:
-    sm_bp, sm_v = [0.0], [float(ccp.STEER_MAX)]
-  ceil_bp, ceil_v = [float(x) for x in ceiling[0]], [float(x) for x in ceiling[1]]
-  bp = sorted(set(ceil_bp + sm_bp))
-  rail = [min(1.0, float(np.interp(v, ceil_bp, ceil_v)) / float(np.interp(v, sm_bp, sm_v))) for v in bp]
-  return bp, rail
+  return [float(x) for x in ceiling[0]], [min(1.0, float(x) / float(ccp.STEER_MAX)) for x in ceiling[1]]
 
 
 def get_steer_slew_schedule(CP):
@@ -106,23 +108,22 @@ def get_steer_slew_schedule(CP):
 
 
 def get_speed_dep_config_for_car(CP):
-  """Return this platform's speed-bin seeds, including its STEER_MAX schedule."""
+  """Return this car's speed-bin seeds, honoring steer-to-zero-only tables and speed floors."""
   cfg = get_speed_dep_config().get(CP.carFingerprint, {})
   if cfg.get('requires_steer_to_zero') and CP.minSteerSpeed > 0:
     return {}
   cfg = dict(cfg)
   if cfg and CP.minSteerSpeed > 0 and 'speed_bp' in cfg:
-    keep = [i for i, v in enumerate(cfg['speed_bp']) if v >= CP.minSteerSpeed]
+    centers = cfg['speed_bp']
+    keep = [i for i, v in enumerate(centers) if v >= CP.minSteerSpeed]
+    if keep and keep[0] > 0:
+      cfg['min_speed'] = (centers[keep[0] - 1] + centers[keep[0]]) / 2
     for key in ('speed_bp', 'laf_bp', 'friction_bp'):
       if key in cfg:
         if keep:
           cfg[key] = [cfg[key][i] for i in keep]
         else:
           del cfg[key]
-  if cfg:
-    schedule = get_steer_max_schedule(CP)
-    if schedule is not None:
-      cfg['steer_max_schedule'] = schedule
   return cfg
 
 

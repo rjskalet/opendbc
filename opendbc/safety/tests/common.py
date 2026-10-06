@@ -1019,6 +1019,11 @@ class SafetyTest(SafetyTestBase):
               continue
             if attr.startswith('TestHyundaiCanfd') and current_test.startswith('TestHyundaiCanfd'):
               continue
+            # Mazda safety-param variants intentionally share the same steering/button TX
+            # addresses while selecting different limits. Current ZoomPilot excludes those
+            # siblings from this cross-mode address test and validates their limits separately.
+            if attr.startswith('TestMazda') and current_test.startswith('TestMazda'):
+              continue
             if {attr, current_test}.issubset({'TestHyundaiLongitudinalSafety', 'TestHyundaiLongitudinalSafetyCameraSCC', 'TestHyundaiSafetyFCEVLong'}):
               continue
             base_tests = {'TestHyundaiLongitudinalSafety', 'TestHyundaiLongitudinalSafetyCameraSCC', 'TestHyundaiSafetyFCEVLong',

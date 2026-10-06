@@ -26,9 +26,12 @@ class CarState(CarStateBase, CarStateExt):
     self.lkas_track_state = False
     self.steer_undelivered_frames = 0
     self.steer_undelivered = False
+    self.steer_undelivered_alert = False
     self.lkas_block_origin_speed: float | None = None
     self.lkas_delivered = False
     self.steer_first_engage_hold = False
+    # Panda reports rejected bus-0 CAM_LKAS transmissions back on src 192.
+    self.lkas_rejected = 0
 
     self.distance_button = 0
     self.accel_button = 0
@@ -39,9 +42,13 @@ class CarState(CarStateBase, CarStateExt):
     self.steer_first_engage_hold = (not self.lkas_delivered and self.lkas_blocked and self.lkas_track_state and
                                     v_ego_raw < self.params.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED)
 
+    # The fast latch protects the camera/EPS by suppressing torque after sustained zero
+    # delivery. The slower alert is only for a road-speed dropout that began rolling; normal
+    # low-speed TRACK_STATE standby remains silent.
     if not self.lkas_blocked:
       self.steer_undelivered_frames = 0
       self.steer_undelivered = False
+      self.steer_undelivered_alert = False
       self.lkas_block_origin_speed = None
     elif self.lkas_block_origin_speed is None:
       self.lkas_block_origin_speed = v_ego_raw
@@ -52,6 +59,15 @@ class CarState(CarStateBase, CarStateExt):
         self.steer_undelivered = self.steer_undelivered_frames >= self.params.STEER_UNDELIVERED_FRAMES
       else:
         self.steer_undelivered_frames = 0
+
+    if self.steer_undelivered:
+      self.steer_undelivered_frames += 1
+      if (not self.steer_undelivered_alert and not self.lkas_track_state and
+          self.steer_undelivered_frames >= self.params.STEER_UNDELIVERED_FRAMES + self.params.STEER_UNDELIVERED_ALERT_FRAMES and
+          v_ego_raw >= self.params.STEER_UNDELIVERED_ALERT_MIN_SPEED and
+          self.lkas_block_origin_speed is not None and
+          self.lkas_block_origin_speed >= self.params.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED):
+        self.steer_undelivered_alert = True
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -101,6 +117,11 @@ class CarState(CarStateBase, CarStateExt):
     self.lkas_blocked = lkas_blocked
     self.lkas_effective = cp.vl["STEER_RATE"]["LKAS_EFFECTIVE"]
     self.lkas_track_state = cp.vl["STEER_RATE"]["LKAS_TRACK_STATE"] == 1
+    # Count only refused nonzero steering requests. Rejected zero-torque frames while
+    # disengaged do not require controller resynchronization.
+    self.lkas_rejected = sum(
+      1 for request in can_parsers[Bus.loopback].vl_all["CAM_LKAS"]["LKAS_REQUEST"] if request != 0
+    )
 
     if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
       self.update_steer_undelivered(ret.vEgoRaw, cp.vl["STEER_RATE"]["LKAS_REQUEST"])
@@ -128,9 +149,9 @@ class CarState(CarStateBase, CarStateExt):
     ret.lowSpeedAlert = self.low_speed_alert
 
     if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
-      # LKAS_BLOCK is not itself a fault on this EPS; controller-side zero-delivery protection
-      # handles sustained non-delivery without turning a normal low-speed block into a disable.
-      ret.steerFaultTemporary = False
+      # LKAS_BLOCK alone is normal on this EPS. Surface only a sustained road-speed
+      # non-delivery episode; the controller has already zeroed the request by this point.
+      ret.steerFaultTemporary = self.steer_undelivered_alert
     else:
       ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
 
@@ -168,4 +189,6 @@ class CarState(CarStateBase, CarStateExt):
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
       # Traffic-sign camera traffic is optional; never make it part of canValid.
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_TRAFFIC_SIGNS", float("nan"))], 2),
+      # Rejected transmit traffic is sporadic and must never affect canValid or timeouts.
+      Bus.loopback: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_LKAS", float("nan"))], 192),
     }

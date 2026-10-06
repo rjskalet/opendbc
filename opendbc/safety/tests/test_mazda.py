@@ -81,6 +81,25 @@ class TestMazdaSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTes
     self.assertTrue(self._tx(self._button_msg(resume=True)))
 
 
+class TestMazdaSteerToZeroSafety(TestMazdaSafety):
+  """Safety envelope selected by the firmware-derived donor-EPS flag."""
+
+  MAX_RATE_UP = 12
+  MAX_RATE_DOWN = 12
+  MAX_TORQUE_LOOKUP = [0], [1200]
+  MAX_RT_DELTA = 384
+  DRIVER_TORQUE_ALLOWANCE = 15
+  DRIVER_TORQUE_FACTOR = 15
+
+  def setUp(self):
+    self.packer = CANPackerSafety("mazda_2017")
+    self.safety = libsafety_py.libsafety
+    # MazdaSafetyFlags.STEER_TO_ZERO_EPS == 2. Keep this test independent of importing
+    # the interface enum so it exercises the C safety-param ABI directly.
+    self.safety.set_safety_hooks(CarParams.SafetyModel.mazda, 2)
+    self.safety.init_tests()
+
+
 class TestMazdaIgnition(unittest.TestCase):
   TX_MSGS: list = []
 
