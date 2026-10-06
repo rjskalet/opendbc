@@ -9,7 +9,8 @@ from opendbc.car.car_helpers import interfaces
 from opendbc.car.mazda import mazdacan
 from opendbc.car.mazda.carcontroller import CarController
 from opendbc.car.mazda.carstate import CarState
-from opendbc.car.mazda.values import CAR, Buttons, MazdaFlags
+from opendbc.car.mazda.interface import CarInterface
+from opendbc.car.mazda.values import CAR, Buttons, CarControllerParams, MazdaFlags, MazdaSafetyFlags, STEER_TO_ZERO_EPS_FW
 from opendbc.sunnypilot.car.mazda.icbm import IntelligentCruiseButtonManagementInterface
 
 SendButtonState = structs.IntelligentCruiseButtonManagement.SendButtonState
@@ -132,6 +133,24 @@ class TestMazdaPandaRejectionRecovery(unittest.TestCase):
 
     self.assertEqual(controller.apply_torque_last, controller.params.STEER_DELTA_UP)
     self.assertEqual(recovered.torqueOutputCan, controller.params.STEER_DELTA_UP)
+
+
+class TestMazdaDonorDetection(unittest.TestCase):
+  def test_older_cx9_with_donor_eps_is_active_and_uses_donor_limits(self):
+    donor_fw = SimpleNamespace(
+      ecu=structs.CarParams.Ecu.eps,
+      fwVersion=next(iter(STEER_TO_ZERO_EPS_FW)),
+    )
+
+    CP = CarInterface.get_params(CAR.MAZDA_CX9, {}, [donor_fw], False, False, False)
+
+    self.assertFalse(CP.dashcamOnly)
+    self.assertTrue(CP.flags & MazdaFlags.STEER_TO_ZERO_EPS)
+    self.assertTrue(CP.safetyConfigs[0].safetyParam & MazdaSafetyFlags.STEER_TO_ZERO_EPS)
+
+    params = CarControllerParams(CP)
+    self.assertEqual(params.STEER_MAX, 1200)
+    self.assertFalse(hasattr(params, "STEER_MAX_LOOKUP"))
 
 
 class TestMazdaDonorSteering(unittest.TestCase):
