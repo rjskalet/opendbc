@@ -214,7 +214,55 @@ class TestMazdaDonorSteering(unittest.TestCase):
     self.assertTrue(self.CS.steer_undelivered)
     self.update_delivery(blocked=False, effective=0, request=0)
     self.assertFalse(self.CS.steer_undelivered)
+    self.assertFalse(self.CS.steer_undelivered_alert)
     self.assertEqual(self.CS.steer_undelivered_frames, 0)
+
+  def test_undelivered_alert_after_sustained_at_speed_dropout(self):
+    params = self.CS.params
+    total_frames = params.STEER_UNDELIVERED_FRAMES + params.STEER_UNDELIVERED_ALERT_FRAMES
+    request = params.STEER_UNDELIVERED_MIN + 1
+    speed = params.STEER_UNDELIVERED_ALERT_MIN_SPEED + 1.0
+
+    for _ in range(total_frames - 1):
+      self.update_delivery(blocked=True, effective=0, request=request, track=False, speed=speed)
+
+    self.assertTrue(self.CS.steer_undelivered)
+    self.assertFalse(self.CS.steer_undelivered_alert)
+
+    self.update_delivery(blocked=True, effective=0, request=request, track=False, speed=speed)
+    self.assertTrue(self.CS.steer_undelivered_alert)
+
+  def test_undelivered_alert_suppressed_for_low_speed_origin(self):
+    params = self.CS.params
+    request = params.STEER_UNDELIVERED_MIN + 1
+
+    self.update_delivery(blocked=True, effective=0, request=request, track=True, speed=0.3)
+    for _ in range(params.STEER_UNDELIVERED_FRAMES + params.STEER_UNDELIVERED_ALERT_FRAMES + 10):
+      self.update_delivery(
+        blocked=True,
+        effective=0,
+        request=request,
+        track=False,
+        speed=params.STEER_UNDELIVERED_ALERT_MIN_SPEED + 2.0,
+      )
+
+    self.assertTrue(self.CS.steer_undelivered)
+    self.assertFalse(self.CS.steer_undelivered_alert)
+
+  def test_undelivered_alert_suppressed_by_track_state(self):
+    params = self.CS.params
+    total_frames = params.STEER_UNDELIVERED_FRAMES + params.STEER_UNDELIVERED_ALERT_FRAMES
+    request = params.STEER_UNDELIVERED_MIN + 1
+    speed = params.STEER_UNDELIVERED_ALERT_MIN_SPEED + 1.0
+
+    for _ in range(total_frames):
+      self.update_delivery(blocked=True, effective=0, request=request, track=True, speed=speed)
+
+    self.assertTrue(self.CS.steer_undelivered)
+    self.assertFalse(self.CS.steer_undelivered_alert)
+
+    self.update_delivery(blocked=True, effective=0, request=request, track=False, speed=speed)
+    self.assertTrue(self.CS.steer_undelivered_alert)
 
   def test_first_engage_hold_low_speed_entry_and_exit(self):
     self.update_delivery(blocked=True, effective=0, request=0, track=True, speed=0.3)
