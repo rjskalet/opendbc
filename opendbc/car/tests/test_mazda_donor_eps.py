@@ -7,7 +7,7 @@ from opendbc.car.mazda.interface import CarInterface
 from opendbc.car.mazda.values import (
   CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, CarControllerParams, MazdaFlags, MazdaSafetyFlags,
 )
-from opendbc.sunnypilot.car.interfaces import get_speed_dep_config_for_car
+from opendbc.sunnypilot.car.interfaces import get_speed_dep_config_for_car, get_tune_scale
 
 
 Ecu = structs.CarParams.Ecu
@@ -58,6 +58,7 @@ class TestMazdaCx9DonorEps(unittest.TestCase):
         self.assertEqual(params.STEER_DRIVER_MULTIPLIER, 15)
         self.assertEqual(params.STEER_DRIVER_SAMPLES, 10)
         self.assertEqual(params.STEER_DRIVER_MARGIN, 2)
+        self.assertAlmostEqual(get_tune_scale(cp), 1.5)
         self.assertEqual(params.EPS_CEILING_LOOKUP, expected_ceiling)
 
   def test_without_recognized_donor_eps_stays_conservative(self):
@@ -93,6 +94,7 @@ class TestMazdaCx9DonorEps(unittest.TestCase):
     tune = cp.lateralTuning.torque
 
     self.assertAlmostEqual(CarControllerParams(cp).TUNE_SCALE, 1.0)
+    self.assertAlmostEqual(get_tune_scale(cp), 1.0)
     self.assertAlmostEqual(tune.latAccelFactor, raw["LAT_ACCEL_FACTOR"], places=6)
     self.assertAlmostEqual(tune.friction, raw["FRICTION"], places=6)
 
