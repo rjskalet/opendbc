@@ -81,8 +81,10 @@ class TestMazdaCx9DonorEps(unittest.TestCase):
 
     before = (tune.latAccelFactor, tune.friction)
     CarInterface.configure_torque_tune(CAR.MAZDA_CX9, cp.lateralTuning)
-    self.assertAlmostEqual(tune.latAccelFactor, before[0], places=6)
-    self.assertAlmostEqual(tune.friction, before[1], places=6)
+    # configure_torque_tune reinitializes the capnp union; reread the active torque member.
+    tune_after = cp.lateralTuning.torque
+    self.assertAlmostEqual(tune_after.latAccelFactor, before[0], places=6)
+    self.assertAlmostEqual(tune_after.friction, before[1], places=6)
 
   def test_donor_eps_uses_current_speed_bin_seed_table(self):
     cp = cx9_params(sorted(STEER_TO_ZERO_EPS_FW)[0])
