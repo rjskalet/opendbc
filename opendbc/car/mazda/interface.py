@@ -4,7 +4,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.mazda.carcontroller import CarController
 from opendbc.car.mazda.carstate import CarState
-from opendbc.car.mazda.values import CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, MazdaFlags, MazdaSafetyFlags
+from opendbc.car.mazda.values import CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, CarControllerParams, MazdaFlags, MazdaSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
@@ -33,6 +33,12 @@ class CarInterface(CarInterfaceBase):
     ret.steerLimitTimer = 0.8
 
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+    if steer_to_zero and ret.lateralTuning.which() == 'torque':
+      # params.toml is expressed on upstream Mazda's 800-count normalization. Convert once
+      # into the donor EPS's flat 1200-count scale while preserving counts on the wire.
+      tune_scale = CarControllerParams.EPS_STEER_MAX / CarControllerParams.TUNE_STEER_MAX
+      ret.lateralTuning.torque.latAccelFactor *= tune_scale
+      ret.lateralTuning.torque.friction /= tune_scale
 
     if not steer_to_zero and candidate not in (CAR.MAZDA_CX5_2022,):
       ret.minSteerSpeed = LKAS_LIMITS.DISABLE_SPEED * CV.KPH_TO_MS
