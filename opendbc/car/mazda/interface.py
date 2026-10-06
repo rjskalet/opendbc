@@ -19,7 +19,7 @@ class CarInterface(CarInterfaceBase):
 
     # The donor 2022 CX-5 EPS carries its steering capability with it. Detect from firmware so
     # an older CX-9 body with a verified donor rack gets the same lateral path as ZoomPilot.
-    eps_fw = {fw.fwVersion for fw in car_fw if fw.ecu == 'eps'}
+    eps_fw = {fw.fwVersion for fw in car_fw if fw.ecu == structs.CarParams.Ecu.eps}
     steer_to_zero = not eps_fw.isdisjoint(STEER_TO_ZERO_EPS_FW)
     if steer_to_zero:
       ret.flags |= MazdaFlags.STEER_TO_ZERO_EPS.value
