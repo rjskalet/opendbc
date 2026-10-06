@@ -26,9 +26,11 @@ class CarState(CarStateBase, CarStateExt):
     self.lkas_track_state = False
     self.steer_undelivered_frames = 0
     self.steer_undelivered = False
+    self.steer_undelivered_alert = False
     self.lkas_block_origin_speed: float | None = None
     self.lkas_delivered = False
     self.steer_first_engage_hold = False
+    self.lkas_rejected = 0
 
     self.distance_button = 0
     self.accel_button = 0
@@ -42,16 +44,32 @@ class CarState(CarStateBase, CarStateExt):
     if not self.lkas_blocked:
       self.steer_undelivered_frames = 0
       self.steer_undelivered = False
+      self.steer_undelivered_alert = False
       self.lkas_block_origin_speed = None
-    elif self.lkas_block_origin_speed is None:
+      return
+
+    if self.lkas_block_origin_speed is None:
       self.lkas_block_origin_speed = v_ego_raw
 
-    if self.lkas_blocked and not self.steer_undelivered:
+    if not self.steer_undelivered:
       if self.lkas_effective == 0 and abs(lkas_request) > self.params.STEER_UNDELIVERED_MIN:
         self.steer_undelivered_frames += 1
         self.steer_undelivered = self.steer_undelivered_frames >= self.params.STEER_UNDELIVERED_FRAMES
       else:
         self.steer_undelivered_frames = 0
+    else:
+      # The controller deliberately commands zero after the protection latch trips. Keep timing
+      # the EPS block itself so the driver warning can arm independently of the now-zero request.
+      self.steer_undelivered_frames += 1
+
+    alert_frames = self.params.STEER_UNDELIVERED_FRAMES + self.params.STEER_UNDELIVERED_ALERT_FRAMES
+    self.steer_undelivered_alert = (
+      self.steer_undelivered
+      and self.steer_undelivered_frames >= alert_frames
+      and v_ego_raw >= self.params.STEER_UNDELIVERED_ALERT_MIN_SPEED
+      and self.lkas_block_origin_speed >= self.params.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED
+      and not self.lkas_track_state
+    )
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -101,6 +119,7 @@ class CarState(CarStateBase, CarStateExt):
     self.lkas_blocked = lkas_blocked
     self.lkas_effective = cp.vl["STEER_RATE"]["LKAS_EFFECTIVE"]
     self.lkas_track_state = cp.vl["STEER_RATE"]["LKAS_TRACK_STATE"] == 1
+    self.lkas_rejected = sum(1 for request in can_parsers[Bus.loopback].vl_all["CAM_LKAS"]["LKAS_REQUEST"] if request != 0)
 
     if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
       self.update_steer_undelivered(ret.vEgoRaw, cp.vl["STEER_RATE"]["LKAS_REQUEST"])
@@ -128,9 +147,9 @@ class CarState(CarStateBase, CarStateExt):
     ret.lowSpeedAlert = self.low_speed_alert
 
     if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
-      # LKAS_BLOCK is not itself a fault on this EPS; controller-side zero-delivery protection
-      # handles sustained non-delivery without turning a normal low-speed block into a disable.
-      ret.steerFaultTemporary = False
+      # LKAS_BLOCK alone is normal on this EPS at low speed. Only report a temporary fault after
+      # sustained, filtered road-speed non-delivery; the controller protection has already fired.
+      ret.steerFaultTemporary = self.steer_undelivered_alert
     else:
       ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
 
@@ -168,4 +187,7 @@ class CarState(CarStateBase, CarStateExt):
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
       # Traffic-sign camera traffic is optional; never make it part of canValid.
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_TRAFFIC_SIGNS", float("nan"))], 2),
+      # Panda reports rejected bus-0 transmissions back on bus 192. This traffic is sporadic,
+      # so it must never participate in parser validity or timeout checks.
+      Bus.loopback: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_LKAS", float("nan"))], 192),
     }

@@ -4,24 +4,24 @@
 # existing caches and restart learning; an omitted version is zero.
 
 [MAZDA_CX5_2022]
-# The 14.2 m/s boundary aligns bins with the STEER_MAX change from 1200 to 800.
-# Consumers interpolate normalized lateral-acceleration factor in count space across that discontinuity.
-# Values were refreshed from per-bin LiveTorqueParameters fits on 2026-09-02. Unlearned
-# 28 m/s and 35 m/s bins retain the 2026-08-19 fits. Version 1 invalidates older caches.
+# Existing measured bins converted onto one flat 1200-count normalization. Bins at 16.4 m/s
+# and above were learned on the old 800-count side of the scale transition, so preserve wire
+# torque exactly with latAccelFactor x 1.5 and friction / 1.5. Low-speed bins were already on 1200.
+requires_steer_to_zero = true
 speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
-laf_bp      = [2.42, 2.86, 2.29, 1.21, 1.22, 1.53, 1.76]
-friction_bp = [0.160, 0.143, 0.124, 0.145, 0.133, 0.122, 0.108]
-seed_version = 1
+laf_bp      = [2.42, 2.86, 2.29, 1.815, 1.83, 2.295, 2.64]
+friction_bp = [0.160, 0.143, 0.124, 0.0966666667, 0.0886666667, 0.0813333333, 0.072]
+seed_version = 2
 
 [MAZDA_CX9_2021]
-# Learned on a CX-9 with a CX-5 2022 donor EPS. The stock EPS keeps the 45 kph steering
-# floor, so it receives only the bins above it, which sit on the same 800-count scale.
-# Measurements were refreshed from this car's LiveTorqueParameters cache on 2026-08-25.
-# The unlearned 35 m/s lateral-acceleration factor is extrapolated from the measured CX-9/CX-5 highway offset;
-# friction retains the CX-5 value.
+# Preserve the CX-9 donor-EPS measurements while converting the old 800-count highway bins
+# onto the flat 1200-count normalization. The first three bins were already learned on 1200;
+# bins at 16.4 m/s and above use latAccelFactor x 1.5 and friction / 1.5, preserving wire torque exactly.
+requires_steer_to_zero = true
 speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
-laf_bp      = [2.67, 2.70, 2.56, 1.53, 1.28, 1.72, 1.97]
-friction_bp = [0.161, 0.154, 0.116, 0.163, 0.136, 0.128, 0.108]
+laf_bp      = [2.67, 2.70, 2.56, 2.295, 1.92, 2.58, 2.955]
+friction_bp = [0.161, 0.154, 0.116, 0.1086666667, 0.0906666667, 0.0853333333, 0.072]
+seed_version = 1
 
 [MAZDA_CX9]
 # Same TC chassis and donor-EPS tune as MAZDA_CX9_2021. The 2016-20 fingerprint needs this
@@ -33,12 +33,6 @@ substitute = "MAZDA_CX9_2021"
 substitute = "MAZDA_CX9_2021"
 
 [MAZDA_CX5_KE]
-# Apply these values only to a KE with a detected CX-5 2022 donor EPS. The stock EPS
-# uses a flat 800-count scale and a 45 kph steering floor.
+# A KE with the detected donor EPS uses the same converted CX-5 2022 donor table.
+substitute = "MAZDA_CX5_2022"
 requires_steer_to_zero = true
-# The CX-5 2022 table copied unchanged: the donor EPS is the EPS those bins were learned
-# under, and no KE has its own fit yet. seed_version mirrors the source table.
-speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
-laf_bp      = [2.42, 2.86, 2.29, 1.21, 1.22, 1.53, 1.76]
-friction_bp = [0.160, 0.143, 0.124, 0.145, 0.133, 0.122, 0.108]
-seed_version = 1

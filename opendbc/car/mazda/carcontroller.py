@@ -30,12 +30,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
 
     apply_torque = 0
 
-    if self.steer_to_zero:
-      steer_max = round(float(np.interp(CS.out.vEgoRaw, self.params.STEER_MAX_LOOKUP[0], self.params.STEER_MAX_LOOKUP[1])))
-    else:
-      steer_max = self.params.STEER_MAX
+    steer_max = self.params.STEER_MAX
 
     self.driver_torque_samples.append(CS.out.steeringTorque)
+
+    if CS.lkas_rejected:
+      self.apply_torque_last = 0
 
     if CC.latActive:
       new_torque = int(round(CC.actuators.torque * steer_max))

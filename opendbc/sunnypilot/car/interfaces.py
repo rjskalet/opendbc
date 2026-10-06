@@ -62,6 +62,21 @@ def get_steer_max_schedule(CP):
   return [float(x) for x in lookup[0]], [float(x) for x in lookup[1]]
 
 
+def get_tune_scale(CP) -> float:
+  """Controller torque scale relative to the upstream tune's native scale.
+
+  Cars that declare TUNE_STEER_MAX keep params.toml, manual overrides, and NNLC models in
+  upstream units while the controller can use a different physical normalization.
+  """
+  try:
+    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
+    ccp = values.CarControllerParams(CP)
+    tune_steer_max = float(getattr(values.CarControllerParams, 'TUNE_STEER_MAX', ccp.STEER_MAX))
+    return float(ccp.STEER_MAX) / tune_steer_max
+  except (ImportError, AttributeError, TypeError, ZeroDivisionError):
+    return 1.0
+
+
 def get_steer_rail_schedule(CP):
   """Measured EPS applied ceiling divided by the controller's speed-dependent scale."""
   try:
@@ -106,9 +121,9 @@ def get_steer_slew_schedule(CP):
 
 
 def get_speed_dep_config_for_car(CP):
-  """Return this platform's speed-bin seeds, including its STEER_MAX schedule."""
+  """Return this platform's speed-bin seeds on the controller's current torque scale."""
   cfg = get_speed_dep_config().get(CP.carFingerprint, {})
-  if cfg.get('requires_steer_to_zero') and CP.minSteerSpeed > 0:
+  if cfg.get('requires_steer_to_zero') and get_tune_scale(CP) <= 1.0:
     return {}
   cfg = dict(cfg)
   if cfg and CP.minSteerSpeed > 0 and 'speed_bp' in cfg:
