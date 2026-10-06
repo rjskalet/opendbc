@@ -24,6 +24,10 @@ class CarControllerParams:
   TUNE_SCALE = EPS_STEER_MAX / TUNE_STEER_MAX
 
   def __init__(self, CP):
+    # TUNE_SCALE follows the EPS-selected command scale. Keep stock/unknown firmware in
+    # upstream's 800-count tune units; only the verified donor EPS uses the 1200-count space.
+    self.TUNE_SCALE = type(self).TUNE_SCALE if CP.flags & MazdaFlags.STEER_TO_ZERO_EPS else 1.0
+
     if CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
       # Measured 2022 CX-5 donor-EPS envelope. STEER_MAX stays flat; the separate ceiling
       # describes the authority the rack will actually deliver as speed rises.
