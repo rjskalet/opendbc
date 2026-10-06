@@ -177,7 +177,7 @@ class TestMazdaDonorEpsParams(unittest.TestCase):
     self.assertEqual(params.STEER_DELTA_DOWN, 12)
     self.assertEqual(params.STEER_DRIVER_MULTIPLIER, 15)
     self.assertEqual(params.STEER_DRIVER_ALLOWANCE, 15)
-    self.assertEqual(params.STEER_MAX_LOOKUP, ([0., 14.2, 14.5], [1200, 1200, 800]))
+    self.assertFalse(hasattr(params, "STEER_MAX_LOOKUP"))
     self.assertEqual(params.EPS_CEILING_LOOKUP, (
       [8.0, 8.5, 9.4, 10.3, 11.2, 12.1, 13.0, 13.9, 14.5],
       [1148, 1132, 1092, 1048, 1012, 920, 808, 676, 620],
