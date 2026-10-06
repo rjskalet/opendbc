@@ -174,6 +174,12 @@ class TestMazdaDonorSteering(unittest.TestCase):
     self.can_parser.update([self.controller.frame, [steer]])
     return actuators, int(self.can_parser.vl["CAM_LKAS"]["LKAS_REQUEST"]), sends
 
+  def test_donor_controller_scale_is_flat_and_eps_ceiling_is_separate(self):
+    params = self.controller.params
+    self.assertEqual(params.STEER_MAX, 1200)
+    self.assertFalse(hasattr(params, "STEER_MAX_LOOKUP"))
+    self.assertLess(params.EPS_CEILING_LOOKUP[1][-1], params.STEER_MAX)
+
   def test_lkas_block_alone_is_not_undelivered_evidence(self):
     for _ in range(self.CS.params.STEER_UNDELIVERED_FRAMES * 2):
       self.update_delivery(blocked=True, effective=1, request=600)
