@@ -121,9 +121,9 @@ def get_steer_slew_schedule(CP):
 
 
 def get_speed_dep_config_for_car(CP):
-  """Return this platform's speed-bin seeds, including its STEER_MAX schedule."""
+  """Return this platform's speed-bin seeds on the controller's current torque scale."""
   cfg = get_speed_dep_config().get(CP.carFingerprint, {})
-  if cfg.get('requires_steer_to_zero') and CP.minSteerSpeed > 0:
+  if cfg.get('requires_steer_to_zero') and get_tune_scale(CP) <= 1.0:
     return {}
   cfg = dict(cfg)
   if cfg and CP.minSteerSpeed > 0 and 'speed_bp' in cfg:
