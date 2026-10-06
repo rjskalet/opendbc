@@ -58,12 +58,9 @@ def _controller_params(CP):
 
 
 def get_tune_scale(CP) -> float:
-  """Convert upstream torque-tune units onto the carcontroller's wire-count scale."""
-  try:
-    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
-    return float(getattr(values.CarControllerParams, 'TUNE_SCALE', 1.0))
-  except (ImportError, AttributeError):
-    return 1.0
+  """Convert upstream torque-tune units onto this car's actual controller wire-count scale."""
+  ccp = _controller_params(CP)
+  return 1.0 if ccp is None else float(getattr(ccp, 'TUNE_SCALE', 1.0))
 
 
 def get_steer_max_schedule(CP):
