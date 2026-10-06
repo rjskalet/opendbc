@@ -13,12 +13,19 @@ class CarInterface(CarInterfaceBase):
 
   @staticmethod
   def configure_torque_tune(candidate, tune, steering_angle_deadzone_deg=0.0):
-    # Current ZoomPilot keeps Mazda in a flat 1200-count torque space. Convert the upstream
-    # 800-count tune exactly once so the same physical counts remain on the wire.
+    # Populate the upstream 800-count Mazda tune first. The EPS-specific scale is applied
+    # separately once CarParams has identified the physical EPS firmware.
     CarInterfaceBase.configure_torque_tune(candidate, tune, steering_angle_deadzone_deg)
     lat_accel_factor, friction = TORQUE_TUNES.get(candidate, (tune.torque.latAccelFactor, tune.torque.friction))
-    tune.torque.latAccelFactor = lat_accel_factor * CarControllerParams.TUNE_SCALE
-    tune.torque.friction = friction / CarControllerParams.TUNE_SCALE
+    tune.torque.latAccelFactor = lat_accel_factor
+    tune.torque.friction = friction
+
+  @staticmethod
+  def apply_torque_tune_scale(tune, scale: float):
+    if scale == 1.0:
+      return
+    tune.torque.latAccelFactor *= scale
+    tune.torque.friction /= scale
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
@@ -42,6 +49,7 @@ class CarInterface(CarInterfaceBase):
     ret.steerLimitTimer = 0.8
 
     CarInterface.configure_torque_tune(candidate, ret.lateralTuning)
+    CarInterface.apply_torque_tune_scale(ret.lateralTuning, CarControllerParams(ret).TUNE_SCALE)
 
     if not steer_to_zero and candidate not in (CAR.MAZDA_CX5_2022,):
       ret.minSteerSpeed = LKAS_LIMITS.DISABLE_SPEED * CV.KPH_TO_MS
