@@ -1,5 +1,5 @@
 # Per-platform speed-binned torque parameters learned from comma 4 data. Breakpoints are
-# bin centers in m/s. LAF and friction seed per-bin SVD fits and their +/-30% sanity bounds.
+# bin centers in m/s. Lateral-acceleration factor and friction seed per-bin SVD fits and their +/-30% sanity bounds.
 # Learned bins persist across boots. Increment seed_version when new seeds must invalidate
 # existing caches and restart learning; an omitted version is zero.
 
