@@ -8,8 +8,8 @@ class TestSuburbanCameraAccCleanBaseline(unittest.TestCase):
   def test_clean_baseline_params(self):
     cp = CarInterface.get_non_essential_params(CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN)
 
-    self.assertEqual(cp.minSteerSpeed, 0.0)
-    self.assertTrue(cp.steerAtStandstill)
+    self.assertAlmostEqual(cp.minSteerSpeed, 10 / 3.6)
+    self.assertFalse(cp.steerAtStandstill)
     self.assertAlmostEqual(cp.steerActuatorDelay, 0.20)
     self.assertFalse(cp.openpilotLongitudinalControl)
     self.assertTrue(cp.pcmCruise)
