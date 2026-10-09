@@ -177,6 +177,7 @@ class TestMazdaDonorSteering(unittest.TestCase):
       lkas_allowed_speed=True,
       accel_button=0,
       decel_button=0,
+      cancel_button=0,
     )
 
   def update_delivery(self, *, blocked, effective, request, track=False, speed=10.0):
@@ -198,6 +199,19 @@ class TestMazdaDonorSteering(unittest.TestCase):
     self.assertEqual(params.STEER_MAX, 1200)
     self.assertFalse(hasattr(params, "STEER_MAX_LOOKUP"))
     self.assertLess(params.EPS_CEILING_LOOKUP[1][-1], params.STEER_MAX)
+
+  def test_icbm_is_not_interleaved_with_cancel_traffic(self):
+    self.CC_SP.intelligentCruiseButtonManagement.sendButton = SendButtonState.increase
+
+    for requested, physical in ((True, 0), (False, 1)):
+      CC = structs.CarControl(latActive=False)
+      CC.cruiseControl.cancel = requested
+      self.controller_state.cancel_button = physical
+      with patch("opendbc.car.mazda.carcontroller.IntelligentCruiseButtonManagementInterface.update") as icbm_update:
+        self.controller.update(CC.as_reader(), self.CC_SP, self.controller_state, 0)
+        icbm_update.assert_not_called()
+
+    self.controller_state.cancel_button = 0
 
   def test_lkas_block_alone_is_not_undelivered_evidence(self):
     for _ in range(self.CS.params.STEER_UNDELIVERED_FRAMES * 2):
