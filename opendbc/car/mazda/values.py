@@ -23,6 +23,42 @@ class CarControllerParams:
   STEER_DRIVER_FACTOR = 1        # from dbc
   STEER_STEP = 1                 # 100 Hz
 
+  # ZoomPilot Mazda alpha-long command and radar-session limits.
+  ACCEL_MAX = 2.0
+  ACCEL_MIN = -3.5
+  LONG_STEP = 2       # 50 Hz
+  RADAR_STEP = 10     # 10 Hz
+  RADAR_UDS_STEP = 50 # 2 Hz
+
+  FSC_SETTLE_T = 7.0
+  CAM_LANEINFO_FRESH_T = 1.5
+  STOCK_RADAR_ALIVE_T = 0.05
+  STOCK_RADAR_GUARD_T = 1.27
+  RADAR_SESSION_LIMIT_T = 10.0
+
+  RESUME_UNLATCH_LATCHED_T = 0.18
+  RESUME_REPULSE_T = 1.0
+  MAIN_OFF_DEBOUNCE_T = 0.1
+  CANCEL_SETTLE_T = 0.2
+  RELEASE_DEBOUNCE_T = 0.2
+  RELEASE_ACCEL = 0.25
+  LEAD_DEBOUNCE_T = 0.5
+
+  ACCEL_HOLD_LATCHED = -0.001
+  ACCEL_RESUME_PULSE_MAX = 0.25
+  ACCEL_RELEASE_BAND = -0.26
+  ACCEL_RELEASE_RAMP = 1.25
+  ACCEL_BREAKAWAY_MAX = 1.45
+  ACCEL_BREAKAWAY_T = 3.0
+  ACCEL_BREAKAWAY_OVERSHOOT = 0.75
+  ACCEL_CEILING_BP = [0., 4., 9., 14., 18., 25.]
+  ACCEL_CEILING_V = [1.5, 1.75, 1.45, 1.05, 0.85, 0.65]
+  ACCEL_BUILD_BP = [3., 6.]
+  ACCEL_BUILD_V = [1.25, 0.8]
+  ACCEL_LIFT_LIMIT = -2.0
+  ACCEL_WINDUP_LIMIT = 0.04
+  ACCEL_WINDDOWN_LIMIT = -0.10
+
   def __init__(self, CP):
     if CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
       # Keep one controller normalization at the measured EPS/panda envelope. The physical
@@ -70,16 +106,22 @@ class MazdaFlags(IntFlag):
   GEN1 = 1
   # EPS firmware that can steer to zero speed (2022 CX-5 donor rack family).
   STEER_TO_ZERO_EPS = 2
+  # Older radar dialect supported by ZoomPilot alpha longitudinal.
+  G46L_RADAR = 8
+  # Developer-only opt-in for radar takeover while moving; off by default.
+  MOVING_TAKEOVER = 16
 
 
 class MazdaSafetyFlags(IntFlag):
+  # Enables Mazda alpha-longitudinal panda checks and synthetic radar traffic.
+  LONG = 1
   # Selects the matching steer-to-zero torque envelope in panda safety.
   STEER_TO_ZERO_EPS = 2
 
 
 @dataclass
 class MazdaPlatformConfig(PlatformConfig):
-  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'mazda_2017'})
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'mazda_2017', Bus.radar: 'mazda_2017'})
   flags: int = MazdaFlags.GEN1
 
 
@@ -92,7 +134,9 @@ class CAR(Platforms):
   MAZDA_CX9 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2016-20")],
     # ZoomPilot TC-platform geometry: 2.93 m wheelbase, 17.6 steering ratio.
-    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6)
+    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6),
+    # Older CX-9 radars do not expose the standard 0x361-0x366 track stream.
+    dbc_dict={Bus.pt: 'mazda_2017'},
   )
   MAZDA_3 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda 3 2017-18")],
@@ -118,6 +162,9 @@ class LKAS_LIMITS:
   DISABLE_SPEED = 45    # kph
   ENABLE_SPEED = 52     # kph
 
+
+# Older G46L radar dialect validated by ZoomPilot for alpha longitudinal.
+G46L_RADAR_FW = {b'G46L-67XA1-C'}
 
 # Keep this synchronized with ZoomPilot's steer-to-zero EPS firmware set.
 STEER_TO_ZERO_EPS_FW = {
