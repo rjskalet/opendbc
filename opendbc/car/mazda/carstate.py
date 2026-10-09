@@ -53,7 +53,6 @@ class CarState(CarStateBase, CarStateExt):
 
     self.cruise_available = False
     self.cruise_enabled = False
-    self.mrcc_armed_raw = False
     self.cruise_enabled_blocked = True
     self.stock_radar_silent_frames = 0
     self.stock_radar_seen = False
@@ -191,7 +190,6 @@ class CarState(CarStateBase, CarStateExt):
 
     acc_armed = cp.vl["PEDALS"]["ACC_OFF"] == 1
     acc_active = cp.vl["PEDALS"]["ACC_ACTIVE"] == 1
-    self.mrcc_armed_raw = acc_armed or acc_active
 
     if self.CP.openpilotLongitudinalControl:
       # Once the stock radar is silent, PEDALS becomes the authoritative MRCC/main state.
