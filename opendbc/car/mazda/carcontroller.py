@@ -101,8 +101,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     can_sends.append(mazdacan.create_steering_control(self.packer, self.CP,
                                                       self.frame, apply_torque, CS.cam_lkas))
 
-    # Intelligent Cruise Button Management
-    can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CC_SP, CS, self.packer, self.frame, self.last_button_frame))
+    # Do not interleave ICBM set-speed frames with cancel/resume traffic. Mazda's body ECU
+    # owns one CRZ_BTNS counter stream, and competing synthetic frames can race the driver's
+    # cancel or the controller's synchronization press.
+    icbm_suppress = CC.cruiseControl.cancel or CC.cruiseControl.resume or CS.cancel_button == 1
+    if not icbm_suppress:
+      can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CC_SP, CS, self.packer, self.frame, self.last_button_frame))
 
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = apply_torque / steer_max
