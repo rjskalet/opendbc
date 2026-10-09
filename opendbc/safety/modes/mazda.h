@@ -279,7 +279,8 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
   }
 
   // Run after steering checks, which reset rate-limit state while disengaged.
-  if (main_bus && mazda_is_lka_addr(msg->addr) && !mazda_openpilot_controlling()) {
+  // Preserve the validated pre-longitudinal steering safety behavior unless alpha long is active.
+  if (mazda_longitudinal && main_bus && mazda_is_lka_addr(msg->addr) && !mazda_openpilot_controlling()) {
     tx = false;
   }
 
@@ -362,7 +363,7 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
 static bool mazda_fwd_hook(int bus_num, int addr) {
   bool block_msg = false;
 
-  if (bus_num == MAZDA_CAM) {
+  if (mazda_longitudinal && (bus_num == MAZDA_CAM)) {
     if (mazda_is_lka_addr(addr)) {
       block_msg = mazda_openpilot_controlling();
     }
@@ -376,10 +377,11 @@ static safety_config mazda_init(uint16_t param) {
   mazda_main_off_samples = 0U;
   mazda_acc_armed = false;
 
+  // Stock-longitudinal path: keep the exact validated static camera blocking behavior.
   static const CanMsg MAZDA_TX_MSGS[] = {
-    {MAZDA_LKAS, 0, 8, .check_relay = true, .disable_static_blocking = true},
+    {MAZDA_LKAS, 0, 8, .check_relay = true},
     {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false},
-    {MAZDA_LKAS_HUD, 0, 8, .check_relay = true, .disable_static_blocking = true},
+    {MAZDA_LKAS_HUD, 0, 8, .check_relay = true},
   };
 
 // Replaced-radar addresses omit relay checks because the radar remains live during boot and
