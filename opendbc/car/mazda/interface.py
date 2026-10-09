@@ -8,6 +8,9 @@ from opendbc.car.mazda.radar_interface import RadarInterface
 from opendbc.car.mazda.values import CAR, DBC, G46L_RADAR_FW, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, CarControllerParams, MazdaFlags, MazdaSafetyFlags
 
 
+STANDARD_RADAR_TRACK_ADDRS = frozenset(range(0x361, 0x367))
+
+
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
@@ -33,9 +36,14 @@ class CarInterface(CarInterfaceBase):
       ret.flags |= MazdaFlags.STEER_TO_ZERO_EPS.value
       ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.STEER_TO_ZERO_EPS.value
 
-    # Alpha long is offered only on the steer-to-zero EPS and a radar dialect ZoomPilot has
-    # validated. The toggle remains AlphaLongitudinalEnabled, so stock MRCC is the default.
-    ret.alphaLongitudinalAvailable = steer_to_zero and (Bus.radar in DBC[candidate] or g46l_radar)
+    # Alpha long is offered only on the steer-to-zero EPS and a radar dialect we have evidence for.
+    # ZoomPilot's generic 2016-20 CX-9 platform does not claim a radar bus, but some cars expose the
+    # complete standard 0x361-0x366 track stream anyway. Admit that standard dialect only when the
+    # startup fingerprint actually sees all six track addresses; this avoids broadening support to
+    # every older CX-9 while allowing a measured car to use the normal synthetic-radar replay.
+    standard_radar_tracks = STANDARD_RADAR_TRACK_ADDRS.issubset(fingerprint.get(0, {}))
+    standard_radar_dialect = Bus.radar in DBC[candidate] or standard_radar_tracks
+    ret.alphaLongitudinalAvailable = steer_to_zero and (standard_radar_dialect or g46l_radar)
     ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable
     if ret.openpilotLongitudinalControl:
       ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.LONG.value
