@@ -121,7 +121,7 @@ class MazdaSafetyFlags(IntFlag):
 
 @dataclass
 class MazdaPlatformConfig(PlatformConfig):
-  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'mazda_2017'})
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'mazda_2017', Bus.radar: 'mazda_2017'})
   flags: int = MazdaFlags.GEN1
 
 
@@ -134,7 +134,9 @@ class CAR(Platforms):
   MAZDA_CX9 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2016-20")],
     # ZoomPilot TC-platform geometry: 2.93 m wheelbase, 17.6 steering ratio.
-    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6)
+    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6),
+    # Older CX-9 radars do not expose the standard 0x361-0x366 track stream.
+    dbc_dict={Bus.pt: 'mazda_2017'},
   )
   MAZDA_3 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda 3 2017-18")],
