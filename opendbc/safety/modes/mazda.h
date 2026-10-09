@@ -36,7 +36,6 @@
 static bool mazda_longitudinal = false;
 static bool mazda_steer_to_zero_eps = false;
 // Live cruise arming from PEDALS, both longitudinal modes (carstate mrcc_armed_raw).
-static bool mazda_acc_armed = false;
 static uint32_t mazda_engage_btn_frames = 0U;
 static uint32_t mazda_main_off_samples = 0U;
 
@@ -145,7 +144,6 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
       // The live MRCC arm, both longitudinal modes, from the body's own PEDALS bits: the same
       // source and frame carstate's mrcc_armed_raw reads, so the MRCC-off exception below
       // opens on the frame the controller first sends (the radar's CRZ_CTRL bit lags it).
-      mazda_acc_armed = GET_BIT(msg, 2U) || GET_BIT(msg, 3U);
       if (mazda_longitudinal) {
         // Derive cruise state from PEDALS after radar teardown.
         bool cruise_engaged = GET_BIT(msg, 3U);
@@ -331,7 +329,6 @@ static bool mazda_fwd_hook(int bus_num, int addr) {
 static safety_config mazda_init(uint16_t param) {
   mazda_engage_btn_frames = 0U;
   mazda_main_off_samples = 0U;
-  mazda_acc_armed = false;
 
   // Stock-longitudinal path: keep the exact validated static camera blocking behavior.
   static const CanMsg MAZDA_TX_MSGS[] = {
