@@ -1,0 +1,44 @@
+# Per-platform speed-binned torque parameters learned from comma 4 data. Breakpoints are
+# bin centers in m/s. Lateral-acceleration factor and friction seed per-bin SVD fits and their +/-30% sanity bounds.
+# Learned bins persist across boots. Increment seed_version when new seeds must invalidate
+# existing caches and restart learning; an omitted version is zero.
+
+[MAZDA_CX5_2022]
+# Existing measured bins converted onto one flat 1200-count normalization. Bins at 16.4 m/s
+# and above were learned on the old 800-count side of the scale transition, so preserve wire
+# torque exactly with latAccelFactor x 1.5 and friction / 1.5. Low-speed bins were already on 1200.
+requires_steer_to_zero = true
+speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
+laf_bp      = [2.42, 2.86, 2.29, 1.815, 1.83, 2.295, 2.64]
+friction_bp = [0.160, 0.143, 0.124, 0.0966666667, 0.0886666667, 0.0813333333, 0.072]
+seed_version = 2
+
+[MAZDA_CX9_2021]
+# Preserve the CX-9 donor-EPS measurements while converting the old 800-count highway bins
+# onto the flat 1200-count normalization. The first three bins were already learned on 1200;
+# bins at 16.4 m/s and above use latAccelFactor x 1.5 and friction / 1.5, preserving wire torque exactly.
+requires_steer_to_zero = true
+speed_bp    = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
+laf_bp      = [2.67, 2.70, 2.56, 2.295, 1.92, 2.58, 2.955]
+friction_bp = [0.161, 0.154, 0.116, 0.1086666667, 0.0906666667, 0.0853333333, 0.072]
+seed_version = 1
+
+[MAZDA_CX9]
+# Same TC chassis and donor-EPS tune as MAZDA_CX9_2021. The 2016-20 fingerprint needs this
+# explicit alias so an EPS-swapped 2018 CX-9 loads the same measured speed-bin values.
+substitute = "MAZDA_CX9_2021"
+
+[MAZDA_CX8_2023]
+# The CX-9 2021 seeds stand in until a CX-8 has learned its own.
+substitute = "MAZDA_CX9_2021"
+
+[MAZDA_CX5_KE]
+# A KE with the detected donor EPS uses the same converted CX-5 2022 donor table.
+substitute = "MAZDA_CX5_2022"
+requires_steer_to_zero = true
+
+[CHEVROLET_SUBURBAN_CAMERA_11TH_GEN]
+speed_bp = [6.5, 9.5, 12.0, 16.4, 21.0, 28.0, 35.0]
+laf_bp = [0.680, 0.680, 0.680, 0.435, 0.469, 0.378, 0.413]
+friction_bp = [0.205, 0.205, 0.205, 0.195, 0.208, 0.181, 0.135]
+seed_version = 1

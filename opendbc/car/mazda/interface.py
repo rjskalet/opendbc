@@ -4,7 +4,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.mazda.carcontroller import CarController
 from opendbc.car.mazda.carstate import CarState
-from opendbc.car.mazda.values import CAR, LKAS_LIMITS
+from opendbc.car.mazda.values import CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, CarControllerParams, MazdaFlags, MazdaSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
@@ -17,15 +17,33 @@ class CarInterface(CarInterfaceBase):
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.mazda)]
     ret.radarUnavailable = True
 
-    ret.dashcamOnly = candidate not in (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021)
+    # The donor 2022 CX-5 EPS carries its steering capability with it. Detect from firmware so
+    # an older CX-9 body with a verified donor rack gets the same lateral path as ZoomPilot.
+    eps_fw = {fw.fwVersion for fw in car_fw if fw.ecu == structs.CarParams.Ecu.eps}
+    steer_to_zero = not eps_fw.isdisjoint(STEER_TO_ZERO_EPS_FW)
+    if steer_to_zero:
+      ret.flags |= MazdaFlags.STEER_TO_ZERO_EPS.value
+      ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.STEER_TO_ZERO_EPS.value
 
-    ret.steerActuatorDelay = 0.1
+    # Preserve upstream-supported bodies, and additionally lift dashcam-only when the capable EPS
+    # is actually detected. Do not broadly enable unsupported older Mazda EPS firmware.
+    ret.dashcamOnly = candidate not in (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021) and not steer_to_zero
+
+    ret.steerActuatorDelay = 0.14 if steer_to_zero else 0.1
     ret.steerLimitTimer = 0.8
 
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+    if steer_to_zero and ret.lateralTuning.which() == 'torque':
+      # params.toml is expressed on upstream Mazda's 800-count normalization. Convert once
+      # into the donor EPS's flat 1200-count scale while preserving counts on the wire.
+      tune_scale = CarControllerParams.EPS_STEER_MAX / CarControllerParams.TUNE_STEER_MAX
+      ret.lateralTuning.torque.latAccelFactor *= tune_scale
+      ret.lateralTuning.torque.friction /= tune_scale
 
-    if candidate not in (CAR.MAZDA_CX5_2022,):
+    if not steer_to_zero and candidate not in (CAR.MAZDA_CX5_2022,):
       ret.minSteerSpeed = LKAS_LIMITS.DISABLE_SPEED * CV.KPH_TO_MS
+    else:
+      ret.minSteerSpeed = 0.0
 
     ret.centerToFront = ret.wheelbase * 0.41
 

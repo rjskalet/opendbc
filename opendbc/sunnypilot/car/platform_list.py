@@ -13,6 +13,10 @@ from opendbc.car.values import PLATFORMS
 
 CAR_LIST_JSON_OUT = os.path.join(BASEDIR, "../", "sunnypilot", "car", "car_list.json")
 
+# Keep this private experimental port out of the public/generated supported-car list
+# until it has been validated on the vehicle.
+EXPERIMENTAL_PLATFORMS = {"CHEVROLET_SUBURBAN_CAMERA_11TH_GEN"}
+
 
 def _get_params_for_docs_sp(platform) -> tuple[CarParams, object]:
   cp_platform = platform if platform in interfaces else MOCK.MOCK
@@ -40,6 +44,9 @@ def _natural_sort_key(s):
 def build_sorted_car_list(platforms, footnotes) -> dict[str, dict[str, list[str] | str]]:
   cars: dict[str, dict[str, list[str] | str]] = {}
   for model, platform in platforms.items():
+    if model in EXPERIMENTAL_PLATFORMS:
+      continue
+
     car_docs = platform.config.get_all_docs()
     CP, CP_SP = _get_params_for_docs_sp(platform)
 

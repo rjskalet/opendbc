@@ -2,14 +2,16 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mazda.values import DBC, LKAS_LIMITS
+from opendbc.car.mazda.values import DBC, LKAS_LIMITS, CarControllerParams, MazdaFlags
+from opendbc.sunnypilot.car.mazda.carstate_ext import CarStateExt
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
 
-class CarState(CarStateBase):
+class CarState(CarStateBase, CarStateExt):
   def __init__(self, CP, CP_SP):
-    super().__init__(CP, CP_SP)
+    CarStateBase.__init__(self, CP, CP_SP)
+    CarStateExt.__init__(self, CP, CP_SP)
 
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     self.shifter_values = can_define.dv["GEAR"]["GEAR"]
@@ -18,9 +20,56 @@ class CarState(CarStateBase):
     self.acc_active_last = False
     self.lkas_allowed_speed = False
 
+    self.params = CarControllerParams(CP)
+    self.lkas_blocked = False
+    self.lkas_effective = 0
+    self.lkas_track_state = False
+    self.steer_undelivered_frames = 0
+    self.steer_undelivered = False
+    self.steer_undelivered_alert = False
+    self.lkas_block_origin_speed: float | None = None
+    self.lkas_delivered = False
+    self.steer_first_engage_hold = False
+    self.lkas_rejected = 0
+
     self.distance_button = 0
     self.accel_button = 0
     self.decel_button = 0
+
+  def update_steer_undelivered(self, v_ego_raw: float, lkas_request: float) -> None:
+    self.lkas_delivered |= self.lkas_effective != 0
+    self.steer_first_engage_hold = (not self.lkas_delivered and self.lkas_blocked and self.lkas_track_state and
+                                    v_ego_raw < self.params.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED)
+
+    if not self.lkas_blocked:
+      self.steer_undelivered_frames = 0
+      self.steer_undelivered = False
+      self.steer_undelivered_alert = False
+      self.lkas_block_origin_speed = None
+      return
+
+    if self.lkas_block_origin_speed is None:
+      self.lkas_block_origin_speed = v_ego_raw
+
+    if not self.steer_undelivered:
+      if self.lkas_effective == 0 and abs(lkas_request) > self.params.STEER_UNDELIVERED_MIN:
+        self.steer_undelivered_frames += 1
+        self.steer_undelivered = self.steer_undelivered_frames >= self.params.STEER_UNDELIVERED_FRAMES
+      else:
+        self.steer_undelivered_frames = 0
+    else:
+      # The controller deliberately commands zero after the protection latch trips. Keep timing
+      # the EPS block itself so the driver warning can arm independently of the now-zero request.
+      self.steer_undelivered_frames += 1
+
+    alert_frames = self.params.STEER_UNDELIVERED_FRAMES + self.params.STEER_UNDELIVERED_ALERT_FRAMES
+    self.steer_undelivered_alert = (
+      self.steer_undelivered
+      and self.steer_undelivered_frames >= alert_frames
+      and v_ego_raw >= self.params.STEER_UNDELIVERED_ALERT_MIN_SPEED
+      and self.lkas_block_origin_speed >= self.params.STEER_UNDELIVERED_ALERT_ORIGIN_SPEED
+      and not self.lkas_track_state
+    )
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -65,28 +114,29 @@ class CarState(CarStateBase):
     # TODO: this should be from 0 - 1.
     ret.gasPressed = cp.vl["ENGINE_DATA"]["PEDAL_GAS"] > 0
 
-    # Either due to low speed or hands off
+    # Either due to low speed or hands off on legacy firmware.
     lkas_blocked = cp.vl["STEER_RATE"]["LKAS_BLOCK"] == 1
+    self.lkas_blocked = lkas_blocked
+    self.lkas_effective = cp.vl["STEER_RATE"]["LKAS_EFFECTIVE"]
+    self.lkas_track_state = cp.vl["STEER_RATE"]["LKAS_TRACK_STATE"] == 1
+    self.lkas_rejected = sum(1 for request in can_parsers[Bus.loopback].vl_all["CAM_LKAS"]["LKAS_REQUEST"] if request != 0)
 
-    if self.CP.minSteerSpeed > 0:
-      # LKAS is enabled at 52kph going up and disabled at 45kph going down
-      # wait for LKAS_BLOCK signal to clear when going up since it lags behind the speed sometimes
+    if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
+      self.update_steer_undelivered(ret.vEgoRaw, cp.vl["STEER_RATE"]["LKAS_REQUEST"])
+      self.lkas_allowed_speed = True
+    else:
+      # LKAS is enabled at 52kph going up and disabled at 45kph going down.
       if speed_kph > LKAS_LIMITS.ENABLE_SPEED and not lkas_blocked:
         self.lkas_allowed_speed = True
       elif speed_kph < LKAS_LIMITS.DISABLE_SPEED:
         self.lkas_allowed_speed = False
-    else:
-      self.lkas_allowed_speed = True
 
-    # TODO: the signal used for available seems to be the adaptive cruise signal, instead of the main on
-    #       it should be used for carState.cruiseState.nonAdaptive instead
     ret.cruiseState.available = cp.vl["CRZ_CTRL"]["CRZ_AVAILABLE"] == 1
     ret.cruiseState.enabled = cp.vl["CRZ_CTRL"]["CRZ_ACTIVE"] == 1
     ret.cruiseState.standstill = cp.vl["PEDALS"]["STANDSTILL"] == 1
     ret.cruiseState.speed = cp.vl["CRZ_EVENTS"]["CRZ_SPEED"] * CV.KPH_TO_MS
 
     # stock lkas should be on
-    # TODO: is this needed?
     ret.invalidLkasSetting = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0
 
     if ret.cruiseState.enabled:
@@ -96,10 +146,12 @@ class CarState(CarStateBase):
         self.low_speed_alert = False
     ret.lowSpeedAlert = self.low_speed_alert
 
-    # Check if LKAS is disabled due to lack of driver torque when all other states indicate
-    # it should be enabled (steer lockout). Don't warn until we actually get lkas active
-    # and lose it again, i.e, after initial lkas activation
-    ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
+    if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
+      # LKAS_BLOCK alone is normal on this EPS at low speed. Only report a temporary fault after
+      # sustained, filtered road-speed non-delivery; the controller protection has already fired.
+      ret.steerFaultTemporary = self.steer_undelivered_alert
+    else:
+      ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
 
     self.acc_active_last = ret.cruiseState.enabled
 
@@ -110,12 +162,13 @@ class CarState(CarStateBase):
     self.cam_laneinfo = cp_cam.vl["CAM_LANEINFO"]
     ret.steerFaultPermanent = cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1
 
-    # cruise control button events: distance, inc, and dec
+    # Cruise-control button events. SET_P/SET_M are the physical set-speed buttons; RES is a
+    # distinct resume command and must not be mistaken for SET+ while the ICBM servo is active.
     prev_distance_button = self.distance_button
     prev_accel_button = self.accel_button
     prev_decel_button = self.decel_button
     self.distance_button = cp.vl["CRZ_BTNS"]["DISTANCE_LESS"]
-    self.accel_button = cp.vl["CRZ_BTNS"]["RES"]
+    self.accel_button = cp.vl["CRZ_BTNS"]["SET_P"]
     self.decel_button = cp.vl["CRZ_BTNS"]["SET_M"]
 
     ret.buttonEvents = [
@@ -124,11 +177,17 @@ class CarState(CarStateBase):
       *create_button_events(self.decel_button, prev_decel_button, {1: ButtonType.decelCruise}),
     ]
 
+    CarStateExt.update(self, ret, ret_sp, can_parsers)
+
     return ret, ret_sp
 
   @staticmethod
   def get_can_parsers(CP, CP_SP):
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
-      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
+      # Traffic-sign camera traffic is optional; never make it part of canValid.
+      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_TRAFFIC_SIGNS", float("nan"))], 2),
+      # Panda reports rejected bus-0 transmissions back on bus 192. This traffic is sporadic,
+      # so it must never participate in parser validity or timeout checks.
+      Bus.loopback: CANParser(DBC[CP.carFingerprint][Bus.pt], [("CAM_LKAS", float("nan"))], 192),
     }
