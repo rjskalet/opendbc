@@ -8,11 +8,6 @@
 #define MAZDA_CRZ_INFO      0x21bU
 #define MAZDA_CRZ_CTRL      0x21cU
 #define MAZDA_CRZ_BTNS      0x09dU
-// Physical TJA button, DBC start bit 11 (byte 1, bit 3). Observed on a CTS-equipped gen1
-// Mazda; trims without the button hold it low for the life of a drive.
-#define MAZDA_TJA_BUTTON_BIT 11U
-// sunnypilot safety param: the TJA button is the MADS lateral switch
-#define MAZDA_PARAM_SP_TJA_BUTTON 1U
 #define MAZDA_RADAR_STATIC  0x499U
 #define MAZDA_RADAR_TRACK_1 0x361U
 #define MAZDA_RADAR_TRACK_2 0x362U
@@ -32,9 +27,6 @@
 #define MAZDA_PARAM_LONGITUDINAL 1U
 // Select the steer-to-zero EPS envelope from the firmware-derived interface flag.
 #define MAZDA_PARAM_STEER_TO_ZERO_EPS 2U
-// The same EPS hardware on firmware that keeps the 45 kph floor: the same envelope.
-#define MAZDA_PARAM_LEGACY_FW_EPS 4U
-
 // Keep SET/RES intent fresh until PEDALS reports engagement.
 #define MAZDA_ENGAGE_BTN_WINDOW 10U
 // Both PEDALS cruise bits low for this many samples is a main-off: carstate's
@@ -42,23 +34,12 @@
 #define MAZDA_MAIN_OFF_DEBOUNCE 10U
 
 static bool mazda_longitudinal = false;
-// Declared by the driver: the TJA button owns lateral and MRCC no longer drives the main edge.
-static bool mazda_tja_button = false;
 static bool mazda_steer_to_zero_eps = false;
-static bool mazda_legacy_fw_eps = false;
 // Live cruise arming from PEDALS, both longitudinal modes (carstate mrcc_armed_raw).
 static bool mazda_acc_armed = false;
 static uint32_t mazda_engage_btn_frames = 0U;
 static uint32_t mazda_main_off_samples = 0U;
 
-static bool mazda_mrcc_off_msg_valid(const CANPacket_t *msg) {
-  // Exact active-low MRCC master tap. CTR occupies the variable bits in byte 3;
-  // all other buttons and payload bits remain pinned.
-  return (GET_LEN(msg) == 8U) && (msg->data[0] == 0x00U) &&
-         (msg->data[1] == 0x81U) && (msg->data[2] == 0xfeU) &&
-         ((msg->data[3] & 0xc3U) == 0xc0U) && (msg->data[4] == 0x00U) &&
-         (msg->data[5] == 0x00U) && (msg->data[6] == 0x00U) && (msg->data[7] == 0x00U);
-}
 
 // Pin replaced-radar traffic to captured stock patterns where possible.
 
@@ -138,16 +119,7 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
     if ((msg->addr == MAZDA_CRZ_CTRL) && !mazda_longitudinal) {
       bool cruise_engaged = msg->data[0] & 0x8U;
       pcm_cruise_check(cruise_engaged);
-      // With the TJA button owning lateral, MRCC no longer drives the MADS main edge: its
-      // falling edge would exit the panda's lateral while the software's MADS stays on.
-      if (!mazda_tja_button) {
-        acc_main_on = GET_BIT(msg, 17U);
-      }
-    }
-
-    if ((msg->addr == MAZDA_CRZ_BTNS) && mazda_tja_button) {
-      // The physical TJA button is the MADS lateral switch, so lateral no longer follows MRCC.
-      mads_button_press = GET_BIT(msg, MAZDA_TJA_BUTTON_BIT) ? MADS_BUTTON_PRESSED : MADS_BUTTON_NOT_PRESSED;
+      acc_main_on = GET_BIT(msg, 17U);
     }
 
     if ((msg->addr == MAZDA_CRZ_BTNS) && mazda_longitudinal) {
@@ -183,9 +155,7 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
         // Main mirrors carstate's cruise_available sample for sample: it follows arming and falls
         // after MAZDA_MAIN_OFF_DEBOUNCE both-low samples, brake or no brake. A main that falls on
         // one side only steers MADS into rejected frames (route 000001c9--0b2a64a214 seg 0).
-        if (mazda_tja_button) {
-          // the button is the lateral switch; MRCC is cruise only
-        } else if (acc_armed) {
+        if (acc_armed) {
           // Main follows PEDALS arming from the first frame; the radar takeover gates cruise
           // (controls_allowed below), never main.
           acc_main_on = true;
@@ -268,10 +238,8 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
     int desired_torque = (((msg->data[0] & 0x0FU) << 8) | msg->data[1]) - 2048U;
 
     const TorqueSteeringLimits *limits = &MAZDA_STEERING_LIMITS;
-    if (mazda_steer_to_zero_eps || mazda_legacy_fw_eps) {
+    if (mazda_steer_to_zero_eps) {
       limits = &MAZDA_STEER_TO_ZERO_EPS_STEERING_LIMITS;
-    } else {
-      // upstream's pre-2022 envelope, no longer selected by the interface
     }
     if (steer_torque_cmd_checks(desired_torque, -1, *limits)) {
       tx = false;
@@ -338,21 +306,9 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
   }
 
   if (main_bus && (msg->addr == MAZDA_CRZ_BTNS)) {
-    // Permit resume only while controlling and cancel only while not controlling.
+    // Permit resume only while controlling and cancel while not controlling.
     bool cancel_cmd = (msg->data[0] == 0x1U);
-    const bool mrcc_off_candidate = !GET_BIT(msg, 16U) && GET_BIT(msg, 15U);
-    const bool mrcc_off_cmd = mazda_tja_button && mazda_acc_armed && mazda_mrcc_off_msg_valid(msg);
-    if (!controls_allowed && !cancel_cmd && !mrcc_off_cmd) {
-      tx = false;
-    }
-    // An MRCC-off-shaped frame is either the exact narrow exception or invalid; it cannot
-    // borrow the normal cancel authorization as a composite command.
-    if (mrcc_off_candidate && !mrcc_off_cmd) {
-      tx = false;
-    }
-    // The TJA button is never pressed on the car's side: it would toggle MADS through the
-    // rx hook and arm MRCC in the body.
-    if (GET_BIT(msg, MAZDA_TJA_BUTTON_BIT)) {
+    if (!controls_allowed && !cancel_cmd) {
       tx = false;
     }
   }
@@ -429,8 +385,6 @@ static safety_config mazda_init(uint16_t param) {
 
   mazda_longitudinal = GET_FLAG(param, MAZDA_PARAM_LONGITUDINAL);
   mazda_steer_to_zero_eps = GET_FLAG(param, MAZDA_PARAM_STEER_TO_ZERO_EPS);
-  mazda_legacy_fw_eps = GET_FLAG(param, MAZDA_PARAM_LEGACY_FW_EPS);
-  mazda_tja_button = GET_FLAG(current_safety_param_sp, MAZDA_PARAM_SP_TJA_BUTTON);
   acc_main_on = false;
 
   return mazda_longitudinal ? BUILD_SAFETY_CFG(mazda_long_rx_checks, MAZDA_LONG_TX_MSGS) :
