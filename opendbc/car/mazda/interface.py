@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-from opendbc.car import get_safety_config, structs
+from opendbc.car import Bus, get_safety_config, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.mazda.carcontroller import CarController
 from opendbc.car.mazda.carstate import CarState
-from opendbc.car.mazda.values import CAR, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, CarControllerParams, MazdaFlags, MazdaSafetyFlags
+from opendbc.car.mazda.radar_interface import RadarInterface
+from opendbc.car.mazda.values import CAR, DBC, G46L_RADAR_FW, LKAS_LIMITS, STEER_TO_ZERO_EPS_FW, CarControllerParams, MazdaFlags, MazdaSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
+  RadarInterface = RadarInterface
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "mazda"
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.mazda)]
-    ret.radarUnavailable = True
+
+    # ZoomPilot alpha-long supports the normal Mazda radar-track dialect and the older G46L
+    # dialect (vision lead fallback). Keep eligibility firmware-gated rather than broadening it.
+    g46l_radar = any(fw.ecu == structs.CarParams.Ecu.fwdRadar and fw.fwVersion.rstrip(b'\x00') in G46L_RADAR_FW for fw in car_fw)
+    if g46l_radar:
+      ret.flags |= MazdaFlags.G46L_RADAR.value
+    ret.radarUnavailable = Bus.radar not in DBC[candidate] or g46l_radar
 
     # The donor 2022 CX-5 EPS carries its steering capability with it. Detect from firmware so
     # an older CX-9 body with a verified donor rack gets the same lateral path as ZoomPilot.
@@ -24,6 +32,17 @@ class CarInterface(CarInterfaceBase):
     if steer_to_zero:
       ret.flags |= MazdaFlags.STEER_TO_ZERO_EPS.value
       ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.STEER_TO_ZERO_EPS.value
+
+    # Alpha long is offered only on the steer-to-zero EPS and a radar dialect ZoomPilot has
+    # validated. The toggle remains AlphaLongitudinalEnabled, so stock MRCC is the default.
+    ret.alphaLongitudinalAvailable = steer_to_zero and (Bus.radar in DBC[candidate] or g46l_radar)
+    ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable
+    if ret.openpilotLongitudinalControl:
+      ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.LONG.value
+      ret.pcmCruise = True
+      ret.radarUnavailable = True
+      ret.stopAccel = -1.024
+      ret.longitudinalActuatorDelay = 0.36
 
     # Preserve upstream-supported bodies, and additionally lift dashcam-only when the capable EPS
     # is actually detected. Do not broadly enable unsupported older Mazda EPS firmware.
