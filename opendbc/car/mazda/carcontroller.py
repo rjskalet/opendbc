@@ -31,7 +31,6 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.apply_torque_last = 0
     self.driver_torque_samples: deque[float] = deque(maxlen=self.params.STEER_DRIVER_SAMPLES)
     self.packer = CANPacker(dbc_names[Bus.pt])
-    self.brake_counter = 0
     self.cancel_counter = 0
     self.g46l = bool(CP.flags & MazdaFlags.G46L_RADAR)
     self.stop_and_go = StandstillHold()
