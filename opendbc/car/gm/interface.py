@@ -133,6 +133,8 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       if candidate in ALT_ACCS:
         ret.alphaLongitudinalAvailable = False
         ret.openpilotLongitudinalControl = False
+        ret.pcmCruise = True
+        ret.safetyConfigs[0].safetyParam &= ~GMSafetyFlags.HW_CAM_LONG.value
         ret.minEnableSpeed = -1.  # engage speed is decided by PCM
 
     else:  # ASCM, OBD-II harness

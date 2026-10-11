@@ -1,10 +1,40 @@
 import unittest
+from opendbc.car import gen_empty_fingerprint
 from opendbc.car.gm.interface import CarInterface
-from opendbc.car.gm.values import CAR, CarControllerParams
+from opendbc.car.gm.values import CAR, CarControllerParams, GMSafetyFlags
 from opendbc.sunnypilot.car.gm.interface_ext import CarInterfaceExt
 
 
 class TestSuburbanCameraAccCleanBaseline(unittest.TestCase):
+  @staticmethod
+  def get_params(candidate, alpha_long):
+    return CarInterface.get_params(candidate, gen_empty_fingerprint(), [], alpha_long, False, False)
+
+  def assert_stock_camera_acc(self, candidate):
+    cp = self.get_params(candidate, alpha_long=True)
+    safety_param = cp.safetyConfigs[0].safetyParam
+
+    self.assertFalse(cp.alphaLongitudinalAvailable)
+    self.assertFalse(cp.openpilotLongitudinalControl)
+    self.assertTrue(cp.pcmCruise)
+    self.assertTrue(safety_param & GMSafetyFlags.HW_CAM.value)
+    self.assertFalse(safety_param & GMSafetyFlags.HW_CAM_LONG.value)
+
+  def test_alt_accs_ignore_carried_alpha_long(self):
+    for candidate in (CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN, CAR.GMC_YUKON):
+      with self.subTest(candidate=candidate):
+        self.assert_stock_camera_acc(candidate)
+
+  def test_normal_camera_acc_keeps_alpha_long(self):
+    cp = self.get_params(CAR.CHEVROLET_SILVERADO, alpha_long=True)
+    safety_param = cp.safetyConfigs[0].safetyParam
+
+    self.assertTrue(cp.alphaLongitudinalAvailable)
+    self.assertTrue(cp.openpilotLongitudinalControl)
+    self.assertFalse(cp.pcmCruise)
+    self.assertTrue(safety_param & GMSafetyFlags.HW_CAM.value)
+    self.assertTrue(safety_param & GMSafetyFlags.HW_CAM_LONG.value)
+
   def test_clean_baseline_params(self):
     cp = CarInterface.get_non_essential_params(CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN)
 
