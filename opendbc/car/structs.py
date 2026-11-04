@@ -144,6 +144,8 @@ class CarControlSP:
   leadOne: 'LeadData' = field(default_factory=lambda: LeadData())
   leadTwo: 'LeadData' = field(default_factory=lambda: LeadData())
   intelligentCruiseButtonManagement: 'IntelligentCruiseButtonManagement' = field(default_factory=lambda: IntelligentCruiseButtonManagement())
+  # Request an ordered hand-back to any stock ECU replaced by openpilot longitudinal.
+  stockEcuHandBack: bool = auto_field()
 
   @auto_dataclass
   class Param:
