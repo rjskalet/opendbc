@@ -152,6 +152,17 @@ class TestMazdaDonorDetection(unittest.TestCase):
     self.assertEqual(params.STEER_MAX, 1200)
     self.assertFalse(hasattr(params, "STEER_MAX_LOOKUP"))
 
+  def test_donor_eps_keeps_stock_mrcc(self):
+    donor_fw = SimpleNamespace(
+      ecu=structs.CarParams.Ecu.eps,
+      fwVersion=next(iter(STEER_TO_ZERO_EPS_FW)),
+    )
+
+    CP = CarInterface.get_params(CAR.MAZDA_CX9, {}, [donor_fw], False, False, False)
+
+    self.assertFalse(CP.openpilotLongitudinalControl)
+    self.assertTrue(CP.pcmCruise)
+
 
 class TestMazdaDonorSteering(unittest.TestCase):
   def setUp(self):
