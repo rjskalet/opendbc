@@ -169,6 +169,22 @@ class TestMazdaDonorEpsParams(unittest.TestCase):
     self.assertAlmostEqual(CP.steerActuatorDelay, 0.1)
     self.assertTrue(CP.dashcamOnly)
 
+  def test_cx9_geometry_matches_chassis_and_replay_scaling(self):
+    # 2018 CX-9 official wheelbase: 2.930 m; 2021: 2.928 m (~2.93 m).
+    # The model uses one shared TC-platform nominal wheelbase for both fingerprints.
+    # Lock this down so a port cannot silently restore the old 3.10 m baseline.
+    for platform in (MAZDA.MAZDA_CX9, MAZDA.MAZDA_CX9_2021):
+      with self.subTest(platform=platform):
+        CP = interfaces[platform].get_non_essential_params(platform)
+        self.assertAlmostEqual(CP.wheelbase, 2.93, places=4)
+        self.assertAlmostEqual(CP.steerRatio, 17.6, places=4)
+        self.assertAlmostEqual(CP.centerToFront, 2.93 * 0.41, places=4)
+        # Inertia/mass scales with wheelbase squared; this value appears in
+        # the CX-9 process replay card diff when switching from 3.10 -> 2.93.
+        self.assertAlmostEqual(CP.rotationalInertiaPerMass, 2.013726, places=4)
+        self.assertTrue(CP.pcmCruise)
+        self.assertFalse(CP.openpilotLongitudinalControl)
+
   def test_donor_controller_limits(self):
     params = MazdaControllerParams(self.get_params(next(iter(STEER_TO_ZERO_EPS_FW))))
 
