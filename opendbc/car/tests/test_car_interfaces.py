@@ -3,11 +3,14 @@ import unittest
 
 from opendbc.car import DT_CTRL, CanData, structs
 from opendbc.car.car_helpers import interfaces
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.fingerprints import FW_VERSIONS
 from opendbc.car.fw_versions import FW_QUERY_CONFIGS
 from opendbc.car.interfaces import CarInterfaceBase, get_interface_attr
+from opendbc.car.mazda.values import CAR as MAZDA, STEER_TO_ZERO_EPS_FW, CarControllerParams as MazdaControllerParams
+from opendbc.car.mazda.values import MazdaFlags, MazdaSafetyFlags
 from opendbc.car.values import PLATFORMS
-from opendbc.testing import Fuzzy, fuzzy_test
+from opendbc.testing import Fuzzy, fuzzy_test, parameterized
 
 ALL_ECUS = tuple(sorted({ecu for ecus in FW_VERSIONS.values() for ecu in ecus} |
                         {ecu for config in FW_QUERY_CONFIGS.values() for ecu in config.extra_ecus}))
@@ -135,6 +138,50 @@ class TestCarInterfaces(unittest.TestCase):
     ret = get_interface_attr('FINGERPRINTS', ignore_none=True)
     none_brands_in_ret = none_brands.intersection(ret)
     assert len(none_brands_in_ret) == 0, f'Brands with None values in ignore_none=True result: {none_brands_in_ret}'
+
+
+class TestMazdaDonorEpsParams(unittest.TestCase):
+  @staticmethod
+  def get_params(fw_version: bytes):
+    car_fw = [structs.CarParams.CarFw(ecu="eps", fwVersion=fw_version)]
+    return interfaces[MAZDA.MAZDA_CX9].get_params(
+      MAZDA.MAZDA_CX9, {i: {} for i in range(8)}, car_fw, False, False, False,
+    )
+
+  @parameterized("fw_version", sorted(STEER_TO_ZERO_EPS_FW))
+  def test_recognized_eps_firmware_enables_donor_capability(self, fw_version):
+    CP = self.get_params(fw_version)
+
+    self.assertEqual(CP.carFingerprint, MAZDA.MAZDA_CX9)
+    self.assertTrue(CP.flags & MazdaFlags.STEER_TO_ZERO_EPS)
+    self.assertTrue(CP.safetyConfigs[0].safetyParam & MazdaSafetyFlags.STEER_TO_ZERO_EPS)
+    self.assertEqual(CP.minSteerSpeed, 0.0)
+    self.assertAlmostEqual(CP.steerActuatorDelay, 0.14)
+    self.assertFalse(CP.dashcamOnly)
+
+  def test_unrecognized_eps_firmware_keeps_legacy_capability(self):
+    CP = self.get_params(b'UNKNOWN-3210X-A-00\x00\x00\x00\x00\x00\x00\x00')
+
+    self.assertEqual(CP.carFingerprint, MAZDA.MAZDA_CX9)
+    self.assertFalse(CP.flags & MazdaFlags.STEER_TO_ZERO_EPS)
+    self.assertFalse(CP.safetyConfigs[0].safetyParam & MazdaSafetyFlags.STEER_TO_ZERO_EPS)
+    self.assertEqual(CP.minSteerSpeed, 45 * CV.KPH_TO_MS)
+    self.assertAlmostEqual(CP.steerActuatorDelay, 0.1)
+    self.assertTrue(CP.dashcamOnly)
+
+  def test_donor_controller_limits(self):
+    params = MazdaControllerParams(self.get_params(next(iter(STEER_TO_ZERO_EPS_FW))))
+
+    self.assertEqual(params.STEER_MAX, 1200)
+    self.assertEqual(params.STEER_DELTA_UP, 12)
+    self.assertEqual(params.STEER_DELTA_DOWN, 12)
+    self.assertEqual(params.STEER_DRIVER_MULTIPLIER, 15)
+    self.assertEqual(params.STEER_DRIVER_ALLOWANCE, 15)
+    self.assertFalse(hasattr(params, "STEER_MAX_LOOKUP"))
+    self.assertEqual(params.EPS_CEILING_LOOKUP, (
+      [8.0, 8.5, 9.4, 10.3, 11.2, 12.1, 13.0, 13.9, 14.5],
+      [1148, 1132, 1092, 1048, 1012, 920, 808, 676, 620],
+    ))
 
 
 for car_name in sorted(PLATFORMS):

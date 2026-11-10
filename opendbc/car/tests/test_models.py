@@ -20,6 +20,7 @@ from opendbc.car.honda.values import CAR as HONDA, HondaFlags
 from opendbc.car.logreader import LogReader
 from opendbc.car.structs import car
 from opendbc.car.tests.routes import CarTestRoute, non_tested_cars, routes
+from opendbc.car.tests.routes_suburban import suburban_routes
 from opendbc.car.toyota.values import ToyotaFlags
 from opendbc.car.values import PLATFORMS, Platform
 from opendbc.car.volkswagen.values import VolkswagenFlags
@@ -48,7 +49,7 @@ COMMA_API_URL = "https://api.commadotai.com"
 
 def get_test_cases() -> list[tuple[str, CarTestRoute | None]]:
   routes_by_car = defaultdict(set)
-  for route in routes:
+  for route in routes + suburban_routes:
     routes_by_car[str(route.car_model)].add(route)
 
   test_cases = []

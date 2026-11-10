@@ -1003,6 +1003,11 @@ class SafetyTest(SafetyTestBase):
             if attr.startswith(volkswagen_shared) and current_test.startswith(volkswagen_shared):
               continue
 
+            # Mazda's firmware-gated steer-to-zero mode intentionally shares the stock
+            # Mazda transmit allowlist; only the steering envelope differs by safety param.
+            if attr.startswith('TestMazda') and current_test.startswith('TestMazda'):
+              continue
+
             # overlapping TX addrs, but they're not actuating messages for either car
             if attr == 'TestHyundaiCanfdLKASteeringLongEV' and current_test.startswith('TestToyota'):
               tx = list(filter(lambda m: m[0] not in [0x160, ], tx))

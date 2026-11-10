@@ -2,8 +2,11 @@
 import unittest
 
 from opendbc.car.structs import CarParams
+from opendbc.car.mazda.values import MazdaSafetyFlags
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import make_msg
+
+
 class TestMazdaSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
 
   DBC = "mazda_2017"
@@ -73,9 +76,18 @@ class TestMazdaSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTes
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._button_msg(cancel=True)))
     self.assertTrue(self._tx(self._button_msg(resume=True)))
+class TestMazdaSteerToZeroSafety(TestMazdaSafety):
+  SAFETY_PARAM = MazdaSafetyFlags.STEER_TO_ZERO_EPS
+  MAX_RATE_UP = 12
+  MAX_RATE_DOWN = 12
+  MAX_TORQUE_LOOKUP = [0], [1200]
+  MAX_RT_DELTA = 384
+  DRIVER_TORQUE_ALLOWANCE = 15
+  DRIVER_TORQUE_FACTOR = 15
+  NO_STEER_REQ_BIT = True
+
 class TestMazdaIgnition(common.SafetyTestBase):
   SAFETY_MODEL = None
-
   TX_MSGS: list = []
 
   def _msg(self, byte0):

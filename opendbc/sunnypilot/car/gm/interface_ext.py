@@ -27,6 +27,9 @@ class CarInterfaceExt:
     self.CI_Base = CI_Base
     self.neural_ff_model = None
 
+    # Camera-ACC Suburban calibration is defined in the stock GM interface.
+    # Do not replace it here with another platform's torque tune.
+
   def torque_from_lateral_accel_siglin(self, latcontrol_inputs: LatControlInputs, torque_params: structs.CarParams.LateralTorqueTuning,
                                        gravity_adjusted: bool) -> float:
     def sig(val):

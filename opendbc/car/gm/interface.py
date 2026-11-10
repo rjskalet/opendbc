@@ -134,6 +134,8 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       if candidate in ALT_ACCS:
         ret.alphaLongitudinalAvailable = False
         ret.openpilotLongitudinalControl = False
+        ret.pcmCruise = True
+        ret.safetyConfigs[0].safetyParam &= ~GMSafetyFlags.HW_CAM_LONG.value
         ret.minEnableSpeed = -1.  # engage speed is decided by PCM
 
     else:  # ASCM, OBD-II harness
@@ -226,6 +228,16 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
     elif candidate == CAR.CHEVROLET_TRAVERSE:
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+
+    elif candidate == CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN:
+      # Clean camera-ACC baseline for measured Suburban calibration.
+      # Keep factory GM ACC and stock GM steering safety limits. The torque seed
+      # comes directly from the Suburban entry in torque_data/override.toml.
+      # Keep sunnypilot's stock GM camera minimum steering speed (~10 km/h / 6.2 mph).
+      # Do not allow steering at standstill.
+      ret.steerActuatorDelay = 0.2
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+      ret.lateralTuning.torque.latAccelOffset = 0.0
 
     elif candidate == CAR.GMC_YUKON:
       ret.steerActuatorDelay = 0.5
