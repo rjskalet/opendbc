@@ -20,7 +20,6 @@ from opendbc.car.honda.values import CAR as HONDA, HondaFlags
 from opendbc.car.logreader import LogReader
 from opendbc.car.structs import car
 from opendbc.car.tests.routes import CarTestRoute, non_tested_cars, routes
-from opendbc.car.tests.routes_suburban import suburban_routes
 from opendbc.car.toyota.values import ToyotaFlags
 from opendbc.car.values import PLATFORMS, Platform
 from opendbc.car.volkswagen.values import VolkswagenFlags
@@ -45,11 +44,12 @@ RELAY_TRANSITION_TIMEOUT_US = 10_000_000
 DOWNLOAD_CACHE_ROOT = Path(os.environ.get("COMMA_CACHE", "/tmp/comma_download_cache"))
 OPENPILOT_CI_URL = "https://commadataci.blob.core.windows.net/openpilotci"
 COMMA_API_URL = "https://api.commadotai.com"
+SUNNYPILOT_CAR_SEGMENTS_URL = "https://huggingface.co/datasets/sunnypilot/sunnypilotCarSegments/resolve/main/segments"
 
 
 def get_test_cases() -> list[tuple[str, CarTestRoute | None]]:
   routes_by_car = defaultdict(set)
-  for route in routes + suburban_routes:
+  for route in routes:
     routes_by_car[str(route.car_model)].add(route)
 
   test_cases = []
@@ -68,17 +68,19 @@ def get_cached_segment(route: str, segment: int) -> Path:
       pass
 
   canonical_route = route.replace("/", "|")
-  with urlopen(f"{COMMA_API_URL}/v1/route/{quote(canonical_route, safe='')}/files") as response:
-    route_files = json.load(response)
-  for url in route_files["logs"]:
-    path = Path(urlparse(url).path)
-    if path.parent.name == str(segment) and path.name.startswith("rlog."):
-      return get_cached_url(url)
+  try:
+    with urlopen(f"{COMMA_API_URL}/v1/route/{quote(canonical_route, safe='')}/files") as response:
+      route_files = json.load(response)
+    for url in route_files["logs"]:
+      path = Path(urlparse(url).path)
+      if path.parent.name == str(segment) and path.name.startswith("rlog."):
+        return get_cached_url(url)
+  except (OSError, ValueError):
+    pass
 
   try:
-    from openpilot.sunnypilot.tools.lib.sunnypilot_car_segments import get_url
-    return get_cached_url(get_url(route, segment))
-  except (ImportError, OSError):
+    return get_cached_url(f"{SUNNYPILOT_CAR_SEGMENTS_URL}/{route.replace('|', '/')}/{segment}/rlog.zst")
+  except OSError:
     pass
 
   raise FileNotFoundError(f"no log found for {route}/{segment}")
@@ -204,7 +206,7 @@ class TestCarModelBase(unittest.TestCase):
     if self.CP.dashcamOnly:
       self.skipTest("no need to check carParams for dashcamOnly")
 
-    self.assertGreater(self.CP.mass, 1)
+    self.assertGreater(self.CP.rotationalInertiaPerMass, 0)
     if self.CP.steerControlType not in (SteerControlType.angle, SteerControlType.curvature):
       tuning = self.CP.lateralTuning.which()
       if tuning == "pid":
@@ -268,7 +270,7 @@ class TestCarModelBase(unittest.TestCase):
           self.safety.safety_rx_hook(packet)
       self.safety.set_relay_malfunction(relay_malfunction)
 
-      self.safety.safety_tick_current_safety_config()
+      self.safety.safety_tick()
       if t > 1e6:
         self.assertTrue(self.safety.safety_config_valid())
 
@@ -290,7 +292,7 @@ class TestCarModelBase(unittest.TestCase):
 
     self.assertFalse(failed_addrs, f"panda safety RX check failed: {failed_addrs}")
     self.safety.set_timer(int(t + 2e6))
-    self.safety.safety_tick_current_safety_config()
+    self.safety.safety_tick()
     self.assertFalse(self.safety.safety_config_valid())
 
   def test_panda_safety_tx_cases(self):

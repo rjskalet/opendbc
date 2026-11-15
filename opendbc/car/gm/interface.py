@@ -7,7 +7,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.gm.carcontroller import CarController
 from opendbc.car.gm.carstate import CarState
 from opendbc.car.gm.radar_interface import RadarInterface, RADAR_HEADER_MSG, CAMERA_DATA_HEADER_MSG
-from opendbc.car.gm.values import CAR, CarControllerParams, EV_CAR, CAMERA_ACC_CAR, SDGM_CAR, ALT_ACCS, CanBus, GMSafetyFlags
+from opendbc.car.gm.values import CAR, CarControllerParams, EV_CAR, CAMERA_ACC_CAR, SDGM_CAR, ALT_ACCS, CanBus, GMFlags, GMSafetyFlags
 from opendbc.car.interfaces import CarInterfaceBase, TorqueFromLateralAccelCallbackType, LateralAccelFromTorqueCallbackType
 
 from opendbc.sunnypilot.car.gm.interface_ext import CarInterfaceExt
@@ -103,7 +103,8 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
     ret.brand = "gm"
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.gm)]
     ret.autoResumeSng = False
-    ret.enableBsm = 0x142 in fingerprint[CanBus.POWERTRAIN]
+    if 0x142 in fingerprint[CanBus.POWERTRAIN]:
+      ret.flags |= GMFlags.HAS_BSM.value
 
     if candidate in EV_CAR:
       ret.transmissionType = TransmissionType.direct
@@ -131,6 +132,7 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
         ret.safetyConfigs[0].safetyParam |= GMSafetyFlags.HW_CAM_LONG.value
 
       if candidate in ALT_ACCS:
+        # A request for alpha long must not turn off factory ACC on ALT_ACCS vehicles.
         ret.alphaLongitudinalAvailable = False
         ret.openpilotLongitudinalControl = False
         ret.pcmCruise = True
@@ -229,11 +231,7 @@ class CarInterface(CarInterfaceBase, CarInterfaceExt):
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     elif candidate == CAR.CHEVROLET_SUBURBAN_CAMERA_11TH_GEN:
-      # Clean camera-ACC baseline for measured Suburban calibration.
-      # Keep factory GM ACC and stock GM steering safety limits. The torque seed
-      # comes directly from the Suburban entry in torque_data/override.toml.
-      # Keep sunnypilot's stock GM camera minimum steering speed (~10 km/h / 6.2 mph).
-      # Do not allow steering at standstill.
+      # Keep measured camera-harness steering setup; no experimental U-floor gains.
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
       ret.lateralTuning.torque.latAccelOffset = 0.0

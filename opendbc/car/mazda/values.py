@@ -1,10 +1,9 @@
 from dataclasses import dataclass, field
-from enum import IntFlag
+from enum import Enum, IntFlag
 
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms
-from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.structs import CarParams
-from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
+from opendbc.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries
 
 Ecu = CarParams.Ecu
@@ -53,6 +52,14 @@ class CarControllerParams:
 class MazdaCarDocs(CarDocs):
   package: str = "All"
   car_parts: CarParts = field(default_factory=CarParts.common([CarHarness.mazda]))
+  footnotes: list[Enum] = field(default_factory=lambda: [Footnote.COMMA_POWER_REQUIRED])
+  requires_comma_power: bool = True
+
+
+class Footnote(Enum):
+  COMMA_POWER_REQUIRED = CarFootnote(
+    "Mazda vehicles <b>require</b> comma power installation.",
+    Column.MAKE, setup_note=True)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -60,21 +67,15 @@ class MazdaCarSpecs(CarSpecs):
   tireStiffnessFactor: float = 0.7  # not optimized yet
 
 
-@dataclass(frozen=True, kw_only=True)
-class MazdaCX5_2022CarSpecs(CarSpecs):
-  tireStiffnessFactor: float = 1.0
-
-
 class MazdaFlags(IntFlag):
-  # Gen 1 hardware: same CAN messages and same camera.
+  # Static flags
+  # Gen 1 hardware: same CAN messages and same camera
   GEN1 = 1
-  # EPS firmware that can steer to zero speed (2022 CX-5 donor rack family).
-  STEER_TO_ZERO_EPS = 2
+  STEER_TO_ZERO_EPS = 2  # Identified only from matching donor-EPS firmware
 
 
 class MazdaSafetyFlags(IntFlag):
-  # Selects the matching steer-to-zero torque envelope in panda safety.
-  STEER_TO_ZERO_EPS = 2
+  STEER_TO_ZERO_EPS = 2  # Must match panda safety flag
 
 
 @dataclass
@@ -86,21 +87,19 @@ class MazdaPlatformConfig(PlatformConfig):
 class CAR(Platforms):
   MAZDA_CX5 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-5 2017-21")],
-    # ZoomPilot uses the learned 2022-rack ratio for this shared rack family.
-    MazdaCarSpecs(mass=3655 * CV.LB_TO_KG, wheelbase=2.7, steerRatio=18.1)
+    MazdaCarSpecs(wheelbase=2.7, steerRatio=15.5)
   )
   MAZDA_CX9 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2016-20")],
-    # ZoomPilot TC-platform geometry: 2.93 m wheelbase, 17.6 steering ratio.
-    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6)
+    MazdaCarSpecs(wheelbase=2.93, steerRatio=17.6)  # Verified CX-9 TC geometry
   )
   MAZDA_3 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda 3 2017-18")],
-    MazdaCarSpecs(mass=2875 * CV.LB_TO_KG, wheelbase=2.7, steerRatio=14.0)
+    MazdaCarSpecs(wheelbase=2.7, steerRatio=14.0)
   )
   MAZDA_6 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda 6 2017-20")],
-    MazdaCarSpecs(mass=3443 * CV.LB_TO_KG, wheelbase=2.83, steerRatio=15.5)
+    MazdaCarSpecs(wheelbase=2.83, steerRatio=15.5)
   )
   MAZDA_CX9_2021 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2021-23", video="https://youtu.be/dA3duO4a0O4")],
@@ -108,8 +107,7 @@ class CAR(Platforms):
   )
   MAZDA_CX5_2022 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-5 2022-25")],
-    # 18.1 is ZoomPilot's paramsd-learned ratio (15.5 factory nominal).
-    MazdaCX5_2022CarSpecs(mass=3728 * CV.LB_TO_KG, wheelbase=2.698, steerRatio=18.1),
+    MAZDA_CX5.specs,
   )
 
 
@@ -119,7 +117,7 @@ class LKAS_LIMITS:
   ENABLE_SPEED = 52     # kph
 
 
-# Keep this synchronized with ZoomPilot's steer-to-zero EPS firmware set.
+# Donor steering firmware set preserved from the working CX-9 integration.
 STEER_TO_ZERO_EPS_FW = {
   b'K0A1-3210X-A-00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
   b'KBST-3210X-A-00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
@@ -138,6 +136,7 @@ class Buttons:
 FW_QUERY_CONFIG = FwQueryConfig(
   fw_version_regex=br"[A-Z0-9-]{11,16}\x00{8,13}",
   requests=[
+    # TODO: check data to ensure ABS does not skip ISO-TP frames on bus 0
     Request(
       [StdQueries.MANUFACTURER_SOFTWARE_VERSION_REQUEST],
       [StdQueries.MANUFACTURER_SOFTWARE_VERSION_RESPONSE],
