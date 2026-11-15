@@ -35,3 +35,9 @@ Keep latest SunnyPilot as the base, selectively forward-port **our existing** ve
 - Stock/non-donor Mazda keeps previous camera-based permanent and block-based temporary behavior.
 - Synthetic regression tests cover true EPS faults, camera-only errors, expected low-speed blocks, and exact signal definitions.
 - **Still required:** compare against actual 2018 CX-9 raw CAN data, including sign/scaling, sensor fault transitions, and steering non-delivery before installation.
+
+## 2026-11-15 validation follow-up
+- Mazda 2018 CX-9 factory geometry is 2,930 mm wheelbase (Mazda 2018 CX-9 owners manual, Dimensions). Do **not** roll back to the old 3.10 m reference value merely to make a replay diff disappear.
+- Donor-EPS `CarControllerParams` now imports `Conversions as CV` so its speed-threshold initialization does not raise `NameError`.
+- Added synthetic carParams/factory-ACC and CAN packer/parser tests for Mazda donor/legacy paths and Suburban camera ACC. These are **not** substitutes for real donor EPS CAN and panda tests.
+- Process replay still differs in two Mazda cases (wheelbase/inertia and lateral controller outputs). Preserve that failure until the changed geometry and real driving effect are reviewed, rather than rebaselining blindly.
