@@ -8,6 +8,19 @@ from opendbc.sunnypilot.car.mazda.carstate_ext import CarStateExt
 ButtonType = structs.CarState.ButtonEvent.Type
 
 
+def classify_mazda_steering_faults(donor_eps: bool, eps_fault: bool, camera_fault: bool,
+                                  undelivered_alert: bool, stock_steer_blocked: bool) -> tuple[bool, bool]:
+  """Return temporary/permanent faults; keep EPS and camera faults distinguishable.
+
+  On a verified donor EPS, its own CAN fault is the permanent fault. A camera error
+  requires a temporary steering disengagement, not a false permanent EPS failure.
+  Legacy Mazda retains its previous camera-based permanent-fault behavior.
+  """
+  if donor_eps:
+    return bool(undelivered_alert or camera_fault), bool(eps_fault)
+  return bool(stock_steer_blocked), bool(camera_fault)
+
+
 class CarState(CarStateBase, CarStateExt):
   def __init__(self, CP, CP_SP):
     CarStateBase.__init__(self, CP, CP_SP)
@@ -146,12 +159,14 @@ class CarState(CarStateBase, CarStateExt):
         self.low_speed_alert = False
     ret.lowSpeedAlert = self.low_speed_alert
 
-    if self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS:
-      # LKAS_BLOCK alone is normal on this EPS at low speed. Only report a temporary fault after
-      # sustained, filtered road-speed non-delivery; the controller protection has already fired.
-      ret.steerFaultTemporary = self.steer_undelivered_alert
-    else:
-      ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked
+    # LKAS_BLOCK alone is normal with donor EPS at low speed. Genuine EPS faults
+    # still disable steering; camera-only faults trigger a temporary disable.
+    camera_fault = (cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1 or
+                    cp_cam.vl["CAM_LANEINFO"]["ERR_BIT"] == 1)
+    ret.steerFaultTemporary, ret.steerFaultPermanent = classify_mazda_steering_faults(
+      bool(self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS),
+      cp.vl["STEER_RATE"]["LKAS_FAULT"] == 1, camera_fault,
+      self.steer_undelivered_alert, self.lkas_allowed_speed and lkas_blocked)
 
     self.acc_active_last = ret.cruiseState.enabled
 
@@ -160,7 +175,7 @@ class CarState(CarStateBase, CarStateExt):
     # camera signals
     self.cam_lkas = cp_cam.vl["CAM_LKAS"]
     self.cam_laneinfo = cp_cam.vl["CAM_LANEINFO"]
-    ret.steerFaultPermanent = cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1
+    # Permanent EPS and temporary camera faults were classified above.
 
     # Cruise-control button events. SET_P/SET_M are the physical set-speed buttons; RES is a
     # distinct resume command and must not be mistaken for SET+ while the ICBM servo is active.

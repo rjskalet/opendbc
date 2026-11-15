@@ -28,3 +28,10 @@ Keep latest SunnyPilot as the base, selectively forward-port **our existing** ve
 - Panda safety and carParams invariants, donor EPS firmware gating
 - Process replay against both vehicles' existing logs
 - No merge into master or installation on a Comma 4 until all checks pass
+
+## Donor EPS signal/fault audit (review-stage, not hardware certified)
+- STEER_RATE.LKAS_EFFECTIVE updated to documented 10-bit / 4-count scaling from pinned ZoomPilot opendbc. The previous 12-bit 1-count interpretation could misread applied EPS output.
+- Add independent EPS `LKAS_FAULT` bit. Verified donor EPS uses this for **permanent** steering faults, while camera-only faults produce **temporary** disengagement and sustained steering non-delivery remains temporary.
+- Stock/non-donor Mazda keeps previous camera-based permanent and block-based temporary behavior.
+- Synthetic regression tests cover true EPS faults, camera-only errors, expected low-speed blocks, and exact signal definitions.
+- **Still required:** compare against actual 2018 CX-9 raw CAN data, including sign/scaling, sensor fault transitions, and steering non-delivery before installation.
