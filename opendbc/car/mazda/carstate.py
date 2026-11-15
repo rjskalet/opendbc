@@ -9,7 +9,8 @@ ButtonType = structs.CarState.ButtonEvent.Type
 
 
 def classify_mazda_steering_faults(donor_eps: bool, eps_fault: bool, camera_fault: bool,
-                                  undelivered_alert: bool, stock_steer_blocked: bool) -> tuple[bool, bool]:
+                                  legacy_camera_fault: bool, undelivered_alert: bool,
+                                  stock_steer_blocked: bool) -> tuple[bool, bool]:
   """Return temporary/permanent faults; keep EPS and camera faults distinguishable.
 
   On a verified donor EPS, its own CAN fault is the permanent fault. A camera error
@@ -18,7 +19,7 @@ def classify_mazda_steering_faults(donor_eps: bool, eps_fault: bool, camera_faul
   """
   if donor_eps:
     return bool(undelivered_alert or camera_fault), bool(eps_fault)
-  return bool(stock_steer_blocked), bool(camera_fault)
+  return bool(stock_steer_blocked), bool(legacy_camera_fault)
 
 
 class CarState(CarStateBase, CarStateExt):
@@ -161,11 +162,11 @@ class CarState(CarStateBase, CarStateExt):
 
     # LKAS_BLOCK alone is normal with donor EPS at low speed. Genuine EPS faults
     # still disable steering; camera-only faults trigger a temporary disable.
-    camera_fault = (cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1 or
-                    cp_cam.vl["CAM_LANEINFO"]["ERR_BIT"] == 1)
+    legacy_camera_fault = cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1
+    camera_fault = legacy_camera_fault or cp_cam.vl["CAM_LANEINFO"]["ERR_BIT"] == 1
     ret.steerFaultTemporary, ret.steerFaultPermanent = classify_mazda_steering_faults(
       bool(self.CP.flags & MazdaFlags.STEER_TO_ZERO_EPS),
-      cp.vl["STEER_RATE"]["LKAS_FAULT"] == 1, camera_fault,
+      cp.vl["STEER_RATE"]["LKAS_FAULT"] == 1, camera_fault, legacy_camera_fault,
       self.steer_undelivered_alert, self.lkas_allowed_speed and lkas_blocked)
 
     self.acc_active_last = ret.cruiseState.enabled
