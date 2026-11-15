@@ -74,7 +74,7 @@ class TestMazdaSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTes
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._button_msg(cancel=True)))
     self.assertTrue(self._tx(self._button_msg(resume=True)))
-class TestMazdaSteerToZeroSafety(common.SafetyTestBase, common.DriverTorqueSteeringSafetyTest):
+class TestMazdaSteerToZeroSafety(common.DriverTorqueSteeringSafetyTest):
   DBC = "mazda_2017"
   SAFETY_MODEL = CarParams.SafetyModel.mazda
   SAFETY_PARAM = MazdaSafetyFlags.STEER_TO_ZERO_EPS
