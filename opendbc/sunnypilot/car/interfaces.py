@@ -4,7 +4,6 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
-import functools
 import json
 import os
 import numpy as np
@@ -13,12 +12,21 @@ from collections.abc import Callable
 
 from opendbc.car import structs
 from opendbc.car.can_definitions import CanRecvCallable, CanSendCallable
+from opendbc.car.chrysler.values import ChryslerFlags
+from opendbc.car.ford.values import FordFlags
+from opendbc.car.gm.values import GMFlags
+from opendbc.car.honda.values import HondaFlags
 from opendbc.car.hyundai.values import HyundaiFlags
+from opendbc.car.mazda.values import MazdaFlags
 from opendbc.car.subaru.values import SubaruFlags
+from opendbc.car.toyota.values import ToyotaFlags
+from opendbc.car.volkswagen.values import VolkswagenFlags
 from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
 from opendbc.sunnypilot.car.hyundai.longitudinal.helpers import LongitudinalTuningType
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from opendbc.sunnypilot.car.mazda.values import MazdaFlagsSP, MazdaSafetyFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP, SubaruSafetyFlagsSP
 from opendbc.sunnypilot.car.tesla.values import MadsScreenButtonType, TeslaFlagsSP, TeslaSafetyFlagsSP
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP
@@ -34,117 +42,11 @@ class LatControlInputs(NamedTuple):
 TorqueFromLateralAccelCallbackTypeTorqueSpace = Callable[[LatControlInputs, structs.CarParams.LateralTorqueTuning, bool], float]
 
 
-@functools.cache
-def get_speed_dep_config():
-  """Load ZoomPilot's speed-dependent torque seed config."""
-  import tomllib
-  from pathlib import Path
-  from opendbc.car.common.basedir import BASEDIR
-  path = Path(BASEDIR) / 'torque_data/speed_dependent.toml'
-  with open(path, 'rb') as f:
-    cfg = tomllib.load(f)
-  for name, entry in cfg.items():
-    if 'substitute' in entry:
-      cfg[name] = {**cfg[entry['substitute']], **{k: v for k, v in entry.items() if k != 'substitute'}}
-  return cfg
-
-
-def get_steer_max_schedule(CP):
-  """Normalized torque-to-CAN-count scale by speed, or None for a flat scale."""
-  try:
-    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
-    ccp = values.CarControllerParams(CP)
-  except (ImportError, AttributeError, TypeError):
-    return None
-  lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
-  if lookup is None:
-    return None
-  return [float(x) for x in lookup[0]], [float(x) for x in lookup[1]]
-
-
-def get_tune_scale(CP) -> float:
-  """Controller torque scale relative to the upstream tune's native scale.
-
-  Cars that declare TUNE_STEER_MAX keep params.toml, manual overrides, and NNLC models in
-  upstream units while the controller can use a different physical normalization.
-  """
-  try:
-    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
-    ccp = values.CarControllerParams(CP)
-    tune_steer_max = float(getattr(values.CarControllerParams, 'TUNE_STEER_MAX', ccp.STEER_MAX))
-    return float(ccp.STEER_MAX) / tune_steer_max
-  except (ImportError, AttributeError, TypeError, ZeroDivisionError):
-    return 1.0
-
-
-def get_steer_rail_schedule(CP):
-  """Measured EPS applied ceiling divided by the controller's speed-dependent scale."""
-  try:
-    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
-    ccp = values.CarControllerParams(CP)
-  except (ImportError, AttributeError, TypeError):
-    return None
-  ceiling = getattr(ccp, 'EPS_CEILING_LOOKUP', None)
-  if ceiling is None:
-    return None
-  sm_lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
-  if sm_lookup is not None:
-    sm_bp, sm_v = [float(x) for x in sm_lookup[0]], [float(x) for x in sm_lookup[1]]
-  else:
-    sm_bp, sm_v = [0.0], [float(ccp.STEER_MAX)]
-  ceil_bp, ceil_v = [float(x) for x in ceiling[0]], [float(x) for x in ceiling[1]]
-  bp = sorted(set(ceil_bp + sm_bp))
-  rail = [min(1.0, float(np.interp(v, ceil_bp, ceil_v)) / float(np.interp(v, sm_bp, sm_v))) for v in bp]
-  return bp, rail
-
-
-def get_steer_slew_schedule(CP):
-  """Per-frame normalized torque slew by speed for steer-limit classification."""
-  try:
-    values = __import__(f'opendbc.car.{CP.brand}.values', fromlist=['CarControllerParams'])
-    ccp = values.CarControllerParams(CP)
-  except (ImportError, AttributeError, TypeError):
-    return None
-  delta_up = getattr(ccp, 'STEER_DELTA_UP', None)
-  delta_down = getattr(ccp, 'STEER_DELTA_DOWN', None)
-  if delta_up is None or delta_down is None:
-    return None
-  lookup = getattr(ccp, 'STEER_MAX_LOOKUP', None)
-  if lookup is not None:
-    bp, sm_v = [float(x) for x in lookup[0]], [float(x) for x in lookup[1]]
-  else:
-    steer_max = getattr(ccp, 'STEER_MAX', None)
-    if steer_max is None:
-      return None
-    bp, sm_v = [0.0], [float(steer_max)]
-  return bp, [float(delta_up) / sm for sm in sm_v], [float(delta_down) / sm for sm in sm_v]
-
-
-def get_speed_dep_config_for_car(CP):
-  """Return this platform's speed-bin seeds on the controller's current torque scale."""
-  cfg = get_speed_dep_config().get(CP.carFingerprint, {})
-  if cfg.get('requires_steer_to_zero') and get_tune_scale(CP) <= 1.0:
-    return {}
-  cfg = dict(cfg)
-  if cfg and CP.minSteerSpeed > 0 and 'speed_bp' in cfg:
-    keep = [i for i, v in enumerate(cfg['speed_bp']) if v >= CP.minSteerSpeed]
-    for key in ('speed_bp', 'laf_bp', 'friction_bp'):
-      if key in cfg:
-        if keep:
-          cfg[key] = [cfg[key][i] for i in keep]
-        else:
-          del cfg[key]
-  if cfg:
-    schedule = get_steer_max_schedule(CP)
-    if schedule is not None:
-      cfg['steer_max_schedule'] = schedule
-  return cfg
-
-
 class CarInterfaceBaseSP:
   @staticmethod
   def torque_from_lateral_accel_linear_in_torque_space(latcontrol_inputs: LatControlInputs, torque_params: structs.CarParams.LateralTorqueTuning,
                                                         gravity_adjusted: bool) -> float:
+    # The default is a linear relationship between torque and lateral acceleration (accounting for road roll and steering friction)
     return latcontrol_inputs.lateral_acceleration / float(torque_params.latAccelFactor)
 
   def torque_from_lateral_accel_in_torque_space(self) -> TorqueFromLateralAccelCallbackTypeTorqueSpace:
@@ -183,6 +85,35 @@ class NanoFFModel:
     return pred
 
 
+# upstream detects BSM per brand into each brand's HAS_BSM flag
+BSM_FLAGS = {
+  "chrysler": ChryslerFlags.HAS_BSM,
+  "ford": FordFlags.HAS_BSM,
+  "gm": GMFlags.HAS_BSM,
+  "honda": HondaFlags.HAS_BSM,
+  "hyundai": HyundaiFlags.HAS_BSM,
+  "mazda": MazdaFlags.HAS_BSM,
+  "subaru": SubaruFlags.HAS_BSM,
+  "toyota": ToyotaFlags.HAS_BSM,
+  "volkswagen": VolkswagenFlags.HAS_BSM,
+}
+
+
+def has_bsm(CP: structs.CarParams, CP_SP: structs.CarParamsSP | None) -> bool:
+  if CP.brand == "tesla":
+    return True
+  if CP.brand == "rivian":
+    return CP_SP is not None and bool(CP_SP.flags & RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE)
+  return CP.brand in BSM_FLAGS and bool(CP.flags & BSM_FLAGS[CP.brand])
+
+
+def has_speed_limit(CP: structs.CarParams, CP_SP: structs.CarParamsSP | None) -> bool:
+  """Whether carstate_ext fills CarStateSP.speedLimit (the limit the car shows)."""
+  if CP.brand == "hyundai":
+    return CP_SP is not None and bool(CP_SP.flags & (HyundaiFlagsSP.SPEED_LIMIT_AVAILABLE | HyundaiFlagsSP.HAS_LKAS12))
+  return CP.brand in ("mazda", "tesla", "toyota")
+
+
 def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
                      params_list: list[dict[str, str]] | None = None,
                      can_recv: CanRecvCallable | None = None, can_send: CanSendCallable | None = None) -> None:
@@ -197,10 +128,13 @@ def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
   _initialize_radar_tracks(CP, CP_SP, can_recv, can_send)
   _initialize_stop_and_go(CP, CP_SP, params_dict)
   _initialize_toyota(CP, CP_SP, params_dict)
+  _initialize_mazda(CP, CP_SP, params_dict)
 
 
 def _initialize_custom_longitudinal_tuning(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
                                            params_dict: dict[str, str]) -> None:
+
+  # Hyundai Custom Longitudinal Tuning
   if CP.brand == 'hyundai':
     hyundai_longitudinal_tuning = int(params_dict.get("HyundaiLongitudinalTuning", 0))
     if hyundai_longitudinal_tuning == LongitudinalTuningType.DYNAMIC:
@@ -262,6 +196,7 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
   if CP.brand == 'toyota':
     toyota_stock_long = int(params_dict.get("ToyotaEnforceStockLongitudinal", 0)) == 1
     toyota_stop_and_go_hack = int(params_dict.get("ToyotaStopAndGoHack", 0)) == 1
+    toyota_tss2_smooth = int(params_dict.get("ToyotaTSS2Smooth", 0)) == 1
 
     if toyota_stock_long:
       CP_SP.flags |= ToyotaFlagsSP.STOCK_LONGITUDINAL.value
@@ -271,3 +206,15 @@ def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params
 
     if toyota_stop_and_go_hack and CP.openpilotLongitudinalControl:
       CP_SP.flags |= ToyotaFlagsSP.STOP_AND_GO_HACK.value
+
+    if toyota_tss2_smooth and CP.flags & ToyotaFlags.TSS2 and CP.openpilotLongitudinalControl:
+      CP_SP.flags |= ToyotaFlagsSP.TSS2_SMOOTH.value
+
+
+def _initialize_mazda(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:
+  if CP.brand == 'mazda':
+    # The TJA button is fitted to some trims only and the fingerprint cannot tell, so the
+    # driver declares it. With it, the button owns lateral and MRCC only controls cruise.
+    if int(params_dict.get("MazdaTjaButton", 0)) == 1:
+      CP_SP.flags |= MazdaFlagsSP.TJA_BUTTON.value
+      CP_SP.safetyParam |= MazdaSafetyFlagsSP.TJA_BUTTON
